@@ -32,6 +32,7 @@ for the comparisons.
 
 [Results](#results-on-locomo) · [How it works](#how-it-works) ·
 [Quick start](#quick-start) · [Run experiments](#run-experiments) ·
+[Dify integration](#dify-integration) ·
 [Contribute](#contributing) · [Citation](#citation)
 
 ![Jev-Mem architecture: System-One control guides writing and retrieval over shared multi-relational memory, with System Two synthesizing the answer.](docs/figures/overall_structure.png)
@@ -273,6 +274,92 @@ excludes model initialization, disk saving, and question answering. Record the
 commit, configuration, dataset subset, model, scoring protocol, and cache state
 when comparing experiments.
 
+## Dify integration
+
+Jev-Mem ships with a [Dify](https://dify.ai) integration in two parts: an HTTP
+**sidecar service** that runs the full memory pipeline (writing, graph
+maintenance, controlled retrieval, answer synthesis), and a thin **tool plugin**
+that exposes it to Dify agents and workflows. All model calls happen inside the
+sidecar; the plugin is a stateless HTTP client, so Dify's own model configuration
+is not used for memory operations.
+
+| Tool | What it does |
+| --- | --- |
+| `query_memory` | Bounded multi-hop retrieval over the memory graph plus System-Two answer synthesis; returns the answer, evidence, and a retrieval trace (`stopping_decision`, `jev_calls`, `nodes_visited`, …) |
+| `ingest_memory` | Writes one observation through typing, admission, candidate search, and relation judgment; returns a `memory_id` |
+| `consolidate_memory` | Non-destructive consolidation (redundancy, contradiction, and staleness judgments plus subtype edges) for a given `memory_id` |
+
+Each tool accepts a `response_format` parameter — `both` (default), `text`, or
+`json` — controlling which Dify tool-node outputs it emits. Use `text` for
+LLM/template nodes that consume a string, and `json` for code and JSON nodes
+that need the structured result (`answer`, `evidence`, `memory_id`, `stored`, …).
+
+### Configuration
+
+The sidecar loads `integrations/dify/service/.env`, then the repository-root
+`.env`, then the real environment; real environment variables always win.
+Create the file from the
+[example](integrations/dify/service/.env.example). The full reference lives in
+the [sidecar README](integrations/dify/service/README.md); the main variables are:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OPENAI_BASE_URL` / `OPENAI_API_KEY` | OpenAI endpoint | Any OpenAI-compatible endpoint for the System-Two answer model (DeepSeek, Moonshot, Ollama, vLLM, one-api, …) |
+| `LLM_MODEL` | `gpt-4o-mini` | Model name on that endpoint |
+| `OPENAI_EMBEDDING_MODEL` | — | Switch embeddings from the local `minilm` encoder to the same API endpoint; the dimension is auto-detected (set `OPENAI_EMBEDDING_DIMENSIONS` only for Matryoshka models — vLLM-served Qwen embeddings reject the parameter) |
+| `JEV_MEM_EMBEDDING_MODEL` | auto | Explicit backend override: `openai` or `minilm` |
+| `JEV_BASE_URL` / `JEV_API_KEY` / `JEV_MODEL` | `https://api.typesafe.ai` / — / `jev-latest` | System-One decision endpoint (TypeSafe protocol); the legacy `TYPESAFE_*` names still work and `JEV_*` wins when both are set |
+| `JEV_MEM_API_KEY` | — | When set, `/v1/*` requires `Authorization: Bearer <key>`; enter the same value as the plugin's `api_key` credential |
+| `JEV_MEM_MOCK` | — | `1` = fully offline mock (no API keys, for local plugin development) |
+| `JEV_MEM_HOME` | repo root (auto) | Jev-Mem checkout used by the sidecar |
+| `JEV_MEM_PROFILE` | `$JEV_MEM_HOME/config/jev_mem.json` | Validated memory profile |
+| `JEV_MEM_CACHE_DIR` | `$JEV_MEM_HOME/cache/dify` | Memory persistence root (one subdirectory per namespace) |
+| `JEV_MEM_PORT` / `JEV_MEM_MAX_NAMESPACES` | `8700` / `8` | Listen port / concurrently resident namespaces (LRU-evicted after saving) |
+
+Changing the embedding backend changes vector dimensions: clear the old
+`vectors/` directories under `JEV_MEM_CACHE_DIR` before switching.
+
+### Running the sidecar
+
+Mock mode needs no keys and is enough to develop the plugin locally:
+
+```bash
+python -m pip install -r requirements.txt -r integrations/dify/service/requirements.txt
+python integrations/dify/service/app.py                  # real mode, port 8700
+JEV_MEM_MOCK=1 python integrations/dify/service/app.py   # offline mock
+```
+
+Or run it as a container. The `.env` is mounted read-only and memory data
+persists in a `/data` volume — neither is ever baked into the image:
+
+```bash
+docker build -f integrations/dify/service/Dockerfile -t jev-mem-sidecar .
+docker run -d --name jev-mem \
+  -v "$(pwd)/integrations/dify/service/.env:/app/integrations/dify/service/.env:ro" \
+  -v jev-mem-data:/data -p 8700:8700 jev-mem-sidecar
+```
+
+Inside a container, `localhost` refers to the container itself: point the model
+endpoints at `http://host.docker.internal:<port>` or place the model server on
+the same Docker network.
+
+### Installing the plugin
+
+```bash
+cd integrations/dify
+dify plugin package ./plugin -o ./jev_mem.difypkg   # requires the Dify CLI
+```
+
+Upload the package from Dify's plugin page, then set three credentials:
+`base_url` (the sidecar address as reachable from Dify), `api_key` (matching
+`JEV_MEM_API_KEY`), and `namespace` (memory isolation per app or tenant).
+Two installation caveats: the `author` field in the plugin manifests must match
+the installer's GitHub username, and a self-hosted Dify must run with
+`FORCE_VERIFYING_SIGNATURE=false` to accept unsigned development packages.
+See the [plugin README](integrations/dify/plugin/README.md) for tool usage
+patterns and the [sidecar README](integrations/dify/service/README.md) for the
+complete HTTP endpoint reference.
+
 ## Configuration and integration
 
 Start with [config/jev_mem.json](config/jev_mem.json). All validated fields and
@@ -299,10 +386,7 @@ Use [JevMemSystem](jev_mem/system.py),
 with `jev_config=...`. See the [naming and migration guide](docs/architecture.md#naming-and-migration)
 when updating older integrations.
 
-For Dify, run the [sidecar service](integrations/dify/service/) that exposes the
-memory plane over HTTP, and install the
-[tool plugin](integrations/dify/plugin/) (`query_memory` / `ingest_memory` /
-`consolidate_memory`) into any Dify agent or workflow.
+For Dify, see [Dify integration](#dify-integration).
 
 ## Project layout
 
@@ -313,6 +397,7 @@ memory plane over HTTP, and install the
 | `utils/` | Shared model-provider adapters and scoring utilities |
 | `config/` | Validated experiment profiles |
 | `examples/` / `data/` | Synthetic examples / local external datasets |
+| `integrations/dify/` | Dify sidecar service and tool plugin (HTTP + tools) |
 | `tests/` | Offline regression and compatibility tests |
 | `scripts/` | Release checks, exports, and retrieval diagnostics |
 | `docs/` | Developer guides and architecture figures |
