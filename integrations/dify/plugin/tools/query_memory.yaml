@@ -1,0 +1,38 @@
+identity:
+  name: query_memory
+  author: exceedzhang
+  label:
+    en_US: Query Memory
+    zh_Hans: 查询记忆
+description:
+  human:
+    en_US: Retrieve relevant long-term memories from the Jev-Mem graph memory and synthesize an answer.
+    zh_Hans: 从 Jev-Mem 图记忆中检索相关长期记忆并合成答案。
+  llm: Query the agent's long-term memory (Jev-Mem). Use this when the user asks about previously stored facts, preferences, past events, or relationships that span sessions. Returns the best-supported answer plus retrieval evidence and a compact retrieval trace.
+parameters:
+  - name: question
+    type: string
+    required: true
+    label:
+      en_US: Question
+      zh_Hans: 问题
+    human_description:
+      en_US: The question to answer from long-term memory
+      zh_Hans: 要从长期记忆中回答的问题
+    llm_description: The question to answer from long-term memory.
+    form: llm
+  - name: top_k
+    type: number
+    required: false
+    default: 15
+    label:
+      en_US: Top K
+      zh_Hans: Top K
+    human_description:
+      en_US: Number of evidence items to retrieve
+      zh_Hans: 检索返回的证据条数
+    llm_description: Number of evidence items to retrieve (default 15).
+    form: form
+extra:
+  python:
+    source: tools/query_memory.py

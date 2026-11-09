@@ -1,0 +1,49 @@
+identity:
+  name: ingest_memory
+  author: exceedzhang
+  label:
+    en_US: Ingest Memory
+    zh_Hans: 写入记忆
+description:
+  human:
+    en_US: Store one observation into the Jev-Mem long-term memory graph.
+    zh_Hans: 将一条观察写入 Jev-Mem 长期记忆图。
+  llm: Store new information into the agent's long-term memory (Jev-Mem). Use this when the conversation produces durable facts, preferences, decisions, or events that should be remembered across sessions. The service runs Jev typing/admission and bounded relation extraction; it returns the memory_id of the stored node, or a rejection reason if admission policy dropped it.
+parameters:
+  - name: text
+    type: string
+    required: true
+    label:
+      en_US: Content
+      zh_Hans: 内容
+    human_description:
+      en_US: The observation to store
+      zh_Hans: 要存储的观察内容
+    llm_description: The observation text to store as a long-term memory.
+    form: llm
+  - name: timestamp
+    type: string
+    required: false
+    label:
+      en_US: Timestamp
+      zh_Hans: 时间戳
+    human_description:
+      en_US: Optional ISO 8601 timestamp of the observation
+      zh_Hans: 观察发生的可选 ISO 8601 时间戳
+    llm_description: Optional ISO 8601 timestamp of the observation, e.g. 2026-10-12T10:00:00.
+    form: form
+  - name: source
+    type: string
+    required: false
+    default: dify
+    label:
+      en_US: Source
+      zh_Hans: 来源
+    human_description:
+      en_US: Where this observation came from
+      zh_Hans: 观察来源
+    llm_description: Where this observation came from (stored in metadata).
+    form: form
+extra:
+  python:
+    source: tools/ingest_memory.py

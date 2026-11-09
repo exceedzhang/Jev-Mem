@@ -1,0 +1,5 @@
+# Jev-Mem Dify sidecar service.
+# Core Jev-Mem dependencies live in the repository root requirements.txt:
+#   pip install -r <repo-root>/requirements.txt -r integrations/dify/service/requirements.txt
+fastapi>=0.110
+uvicorn>=0.29

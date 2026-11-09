@@ -299,6 +299,11 @@ Use [JevMemSystem](jev_mem/system.py),
 with `jev_config=...`. See the [naming and migration guide](docs/architecture.md#naming-and-migration)
 when updating older integrations.
 
+For Dify, run the [sidecar service](integrations/dify/service/) that exposes the
+memory plane over HTTP, and install the
+[tool plugin](integrations/dify/plugin/) (`query_memory` / `ingest_memory` /
+`consolidate_memory`) into any Dify agent or workflow.
+
 ## Project layout
 
 | Directory | Contents |

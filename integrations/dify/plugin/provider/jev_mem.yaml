@@ -1,0 +1,57 @@
+identity:
+  author: exceedzhang
+  name: jev_mem
+  label:
+    en_US: Jev-Mem
+    zh_Hans: Jev-Mem 长期记忆
+  description:
+    en_US: Long-term graph memory service (Jev-Mem sidecar) for storing and retrieving agent memories across sessions.
+    zh_Hans: 长期图记忆服务(Jev-Mem sidecar),跨会话存储与检索智能体记忆。
+  icon: icon.png
+  tags:
+    - utilities
+credentials_for_provider:
+  base_url:
+    type: text-input
+    required: true
+    label:
+      en_US: Service URL
+      zh_Hans: 服务地址
+    placeholder:
+      en_US: http://localhost:8700
+      zh_Hans: http://localhost:8700
+    help:
+      en_US: Base URL of the Jev-Mem sidecar service (see integrations/dify/service in the Jev-Mem repo).
+      zh_Hans: Jev-Mem sidecar 服务地址(见 Jev-Mem 仓库 integrations/dify/service)。
+  api_key:
+    type: secret-input
+    required: false
+    label:
+      en_US: API Key
+      zh_Hans: API Key
+    placeholder:
+      en_US: Leave empty if the service has no JEV_MEM_API_KEY
+      zh_Hans: 服务端未设置 JEV_MEM_API_KEY 时留空
+    help:
+      en_US: Required only if the service was started with JEV_MEM_API_KEY.
+      zh_Hans: 仅当服务端设置了 JEV_MEM_API_KEY 时需要。
+  namespace:
+    type: text-input
+    required: false
+    default: default
+    label:
+      en_US: Memory Namespace
+      zh_Hans: 记忆命名空间
+    placeholder:
+      en_US: default
+      zh_Hans: default
+    help:
+      en_US: Isolates memories per Dify app or tenant. Different namespaces have separate memory stores.
+      zh_Hans: 按 Dify 应用或租户隔离记忆,不同命名空间对应独立的记忆库。
+extra:
+  python:
+    source: provider/jev_mem.py
+tools:
+  - tools/query_memory.yaml
+  - tools/ingest_memory.yaml
+  - tools/consolidate_memory.yaml
