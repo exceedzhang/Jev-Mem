@@ -547,6 +547,9 @@ class VectorEncoder:
             # Use OpenAI encoder
             try:
                 from .openai_encoder import OpenAIVectorEncoder
+                # OPENAI_EMBEDDING_MODEL selects the model on the API endpoint;
+                # OPENAI_BASE_URL / OPENAI_API_KEY select the endpoint itself.
+                model_name = os.getenv("OPENAI_EMBEDDING_MODEL") or model_name
                 self.encoder = OpenAIVectorEncoder(model_name)
                 self.dimension = self.encoder.dimension
                 logger.info(f"Using OpenAI embeddings ({model_name}, {self.dimension} dims)")

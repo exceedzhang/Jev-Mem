@@ -346,6 +346,26 @@ def test_openai_embedding_adapter_batches_and_orders(monkeypatch):
     assert requests[0]["dimensions"] == 2
 
 
+def test_openai_embedding_adapter_probes_native_dimension(monkeypatch):
+    """vLLM/Qwen embeddings reject `dimensions`; unset config must omit it."""
+    from types import SimpleNamespace
+    from memory.openai_encoder import OpenAIVectorEncoder
+    monkeypatch.delenv("OPENAI_EMBEDDING_MODEL", raising=False)
+    monkeypatch.delenv("OPENAI_EMBEDDING_DIMENSIONS", raising=False)
+    requests = []
+    def create(**kwargs):
+        requests.append(kwargs)
+        return SimpleNamespace(data=[SimpleNamespace(index=i, embedding=[1.0, 2.0, 3.0])
+                                     for i in range(len(kwargs['input']))])
+    client = SimpleNamespace(embeddings=SimpleNamespace(create=create))
+    encoder = OpenAIVectorEncoder(client=client)
+    assert encoder.dimension == 3
+    assert "dimensions" not in requests[0]
+    vectors = encoder.encode("hello")
+    assert vectors.shape == (1, 3)
+    assert all("dimensions" not in kwargs for kwargs in requests)
+
+
 def test_locomo_write_path_avoids_llm_extraction(tmp_path, monkeypatch):
     from types import SimpleNamespace
     builder = make_builder(tmp_path)
@@ -472,6 +492,40 @@ def test_api_key_precedence(key, expected, monkeypatch):
         result = client.evaluate("key", {}, {"x": Noul(instructions="A fact?")})
     assert len(calls) == (1 if expected else 0)
     assert (result is not None) == bool(expected)
+
+
+def test_jev_env_aliases_override_legacy_names(monkeypatch):
+    monkeypatch.delenv("JEV_BASE_URL", raising=False)
+    monkeypatch.delenv("JEV_MODEL", raising=False)
+    monkeypatch.setenv("TYPESAFE_DEFAULT_MODEL", "legacy-model")
+    monkeypatch.setenv("TYPESAFE_BASE_URL", "https://legacy.example")
+    config = JevMemConfig.load()
+    assert (config.jev_model, config.jev_base_url) == ("legacy-model", "https://legacy.example")
+    monkeypatch.setenv("JEV_MODEL", "local-model")
+    monkeypatch.setenv("JEV_BASE_URL", "http://127.0.0.1:8900")
+    config = JevMemConfig.load()
+    assert (config.jev_model, config.jev_base_url) == ("local-model", "http://127.0.0.1:8900")
+    monkeypatch.delenv("JEV_MODEL")
+    config = JevMemConfig.load()
+    assert (config.jev_model, config.jev_base_url) == ("legacy-model", "http://127.0.0.1:8900")
+
+
+@pytest.mark.parametrize("jev_key,typesafe_key,expected", [
+    ("jev-env-key", "typesafe-env-key", "jev-env-key"),
+    ("", "typesafe-env-key", ""),
+    (None, "typesafe-env-key", "typesafe-env-key"),
+    (None, None, ""),
+])
+def test_jev_api_key_env_precedence(jev_key, typesafe_key, expected, monkeypatch):
+    monkeypatch.delenv("JEV_API_KEY", raising=False)
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    if jev_key is not None:
+        monkeypatch.setenv("JEV_API_KEY", jev_key)
+    if typesafe_key is not None:
+        monkeypatch.setenv("TYPESAFE_API_KEY", typesafe_key)
+    client = JevClient(JevMemConfig(max_retries=0),
+                       transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+    assert client.api_key == expected
 
 
 @pytest.mark.parametrize("answer", [
