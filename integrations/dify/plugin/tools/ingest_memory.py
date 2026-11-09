@@ -4,7 +4,7 @@ from typing import Any
 from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
 
-from tools.base import JMemBaseTool
+from tools.base import JMemBaseTool, normalize_response_format
 from utils.jmem_client import JMemClientError
 
 
@@ -17,6 +17,11 @@ class IngestMemoryTool(JMemBaseTool, Tool):
         timestamp = (tool_parameters.get("timestamp") or "").strip() or None
         source = (tool_parameters.get("source") or "dify").strip() or "dify"
         try:
+            response_format = normalize_response_format(tool_parameters.get("response_format"))
+        except JMemClientError as exc:
+            yield self.create_text_message(str(exc))
+            return
+        try:
             result = self._client().ingest(text, timestamp=timestamp, metadata={"source": source})
         except JMemClientError as exc:
             yield self.create_text_message(f"Jev-Mem ingest failed: {exc}")
@@ -28,10 +33,15 @@ class IngestMemoryTool(JMemBaseTool, Tool):
                 "controller": (result.get("node") or {}).get("controller"),
                 "memory_type": (result.get("node") or {}).get("memory_type"),
             }
-            yield self.create_json_message(payload)
-            # Text message: the memory_id, ready to feed into consolidate_memory.
-            yield self.create_text_message(str(result.get("memory_id") or ""))
+            # Text output: the memory_id, ready to feed into consolidate_memory.
+            text_out = str(result.get("memory_id") or "")
         else:
             reason = result.get("reason") or "rejected"
-            yield self.create_json_message({"stored": False, "reason": reason})
-            yield self.create_text_message(f"rejected: {reason}")
+            payload = {"stored": False, "reason": reason}
+            text_out = f"rejected: {reason}"
+        # ``json`` -> structured output (tool node ``json`` variable,
+        # Array[Object]); ``text`` -> plain text (tool node ``text`` variable).
+        if response_format in ("both", "json"):
+            yield self.create_json_message(payload)
+        if response_format in ("both", "text"):
+            yield self.create_text_message(text_out)

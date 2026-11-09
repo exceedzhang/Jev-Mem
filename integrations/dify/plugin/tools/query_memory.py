@@ -5,7 +5,7 @@ from typing import Any
 from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
 
-from tools.base import JMemBaseTool
+from tools.base import JMemBaseTool, normalize_response_format
 from utils.jmem_client import JMemClientError
 
 
@@ -19,6 +19,11 @@ class QueryMemoryTool(JMemBaseTool, Tool):
             top_k = int(tool_parameters.get("top_k") or 15)
         except (TypeError, ValueError):
             top_k = 15
+        try:
+            response_format = normalize_response_format(tool_parameters.get("response_format"))
+        except JMemClientError as exc:
+            yield self.create_text_message(str(exc))
+            return
         try:
             result = self._client().query(question, top_k=top_k)
         except JMemClientError as exc:
@@ -37,10 +42,12 @@ class QueryMemoryTool(JMemBaseTool, Tool):
             "retrieval_depth": result.get("retrieval_depth"),
             "query_id": trace.get("query_id"),
         }
-        yield self.create_json_message(payload)
-        # Text message so the tool node's ``text`` output is usable directly in
-        # downstream nodes (Dify 1.18 exposes JSON messages as ``json`` only).
-        answer = (result.get("answer") or "").strip()
-        yield self.create_text_message(
-            answer or json.dumps(payload, ensure_ascii=False, default=str)
-        )
+        # ``json`` -> structured output (tool node ``json`` variable,
+        # Array[Object]); ``text`` -> plain text (tool node ``text`` variable).
+        if response_format in ("both", "json"):
+            yield self.create_json_message(payload)
+        if response_format in ("both", "text"):
+            answer = (result.get("answer") or "").strip()
+            yield self.create_text_message(
+                answer or json.dumps(payload, ensure_ascii=False, default=str)
+            )

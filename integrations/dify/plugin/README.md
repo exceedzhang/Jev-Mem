@@ -12,6 +12,22 @@
 | `ingest_memory` | 写入一条观察:Jev typing/准入 → 候选检索 → 关系判断 → 事务插入,返回 `memory_id` |
 | `consolidate_memory` | 对指定 `memory_id` 执行非破坏性巩固(冗余/矛盾/过时判断 + 子类型边) |
 
+## 输出格式(text / json)
+
+每个工具都支持 `response_format` 参数控制工具节点的输出格式:
+
+| 取值 | 输出 | 用途 |
+|---|---|---|
+| `both`(默认) | 同时产出 JSON 与文本两种输出 | 两种下游需求都兼容 |
+| `json` | 仅产出结构化输出 | 工具节点的 `json` 输出变量(Array[Object]),供代码节点、JSON 处理节点使用 |
+| `text` | 仅产出文本输出 | 工具节点的 `text` 输出变量(`{{#node.text#}}`),供 LLM 节点/模板引用 |
+
+- `query_memory` 的 `json` 输出:`{answer, evidence, generated, controller, stopping_decision, nodes_visited, jev_calls, ...}`
+- `ingest_memory` 的 `json` 输出:`{stored, memory_id, controller, memory_type}`(被准入策略拒绝时为 `{stored: false, reason}`)
+- `consolidate_memory` 的 `json` 输出:巩固结果对象
+
+参数非法(非三者之一)时工具返回错误文本,不会调用 sidecar。
+
 ## 凭据
 
 | 字段 | 必填 | 说明 |

@@ -33,6 +33,18 @@ parameters:
       zh_Hans: 检索返回的证据条数
     llm_description: Number of evidence items to retrieve (default 15).
     form: form
+  - name: response_format
+    type: string
+    required: false
+    default: both
+    label:
+      en_US: Response Format
+      zh_Hans: 返回格式
+    human_description:
+      en_US: Output format (text, json, or both)
+      zh_Hans: 输出格式：text、json 或两者都返回
+    llm_description: Output format can be text (plain text), json (structured object available as the tool json output variable), or both (default).
+    form: form
 extra:
   python:
     source: tools/query_memory.py
