@@ -15,7 +15,14 @@ def observation_questions():
     """Admission and multi-label typing share state and can be evaluated together."""
     return {**admission_questions(), **memory_type_questions()}
 
+"""
+准入问题集（对应 C.1 的"5 个准入命题"）。
 
+即写入路径第一步里决定这条观察要不要进记忆的 5 个命题：
+should_store（该不该存）/ future_utility（未来效用，权重 0.4）/ importance（重要性，0.3）/ novelty（新颖性，0.3）/ redundancy（冗余度，0.2 扣项）。
+组合公式：score = should_store × max(0, utility − 0.2×redundancy),低于阈值拒绝并 emit "memory_rejected"。
+注意当前配置 admission_enabled=false,这组问题虽定义在代码里,但常规路径只做 typing 不做过滤——直播里这是个值得提的细节:"准入开关默认关着,全量保留"。
+"""
 def admission_questions():
     return {
         "should_store": noul(
@@ -40,7 +47,18 @@ def admission_questions():
             "Adds any new detail or meaningful update; shared topic alone does not imply redundancy."),
     }
 
+"""
+记忆类型问题集
 
+即写入路径第一步 typing 里对每条观察预测的四个重叠分数：episodic（情景性）/ semantic（语义性）/ procedural（程序性）/ preference（偏好性）。
+注意 docstring 明确这组分数不决定存不存（"these scores never determine whether to store a turn"），
+只是节点元数据；真正决定准入的是另外 5 个准入命题（admission_questions）。
+对照着记写入路径的三个问题集：
+
+memory_type_questions → 这条观察是什么类型（4 分数标注）
+relation_questions → 这条观察和谁连边（每候选 3-4 命题）
+consolidation_questions → 老记忆要不要合并（每 20 次写入一次）
+"""
 def memory_type_questions():
     """Independent types; these scores never determine whether to store a turn."""
     return {
@@ -62,7 +80,13 @@ def memory_type_questions():
             "An isolated action alone, another person's unattributed preference, or no preference evidence."),
     }
 
+"""
+关系问题集（对应 C.2 的 Write ②：Jev Relations 阶段）。
 
+即写入路径第二步、对每个候选记忆对 (v,u)(v,u) 批量判定的那组命题：
+pair_{i}_semantic（语义相关）/ pair_{i}_causes 与 pair_{i}_caused_by（双向因果）/ pair_{i}_entity（实体别名，仅在实体 ID 无交集时才发）。
+与上一个问题对照着记：关系问题集管"新记忆和谁连边"，巩固问题集管"老记忆要不要合并"。
+"""
 def relation_questions(index, infer_identity=True):
     pair = f"Compare `new_memory.content` with `candidates[{index}].content`. "
     questions = {
@@ -82,7 +106,12 @@ def relation_questions(index, infer_identity=True):
             "Distinct entities or insufficient evidence to resolve the alias; similar names alone are insufficient.")
     return questions
 
-
+"""
+巩固问题 / 巩固阶段提出的问题
+在 Jev-Mem（以及原论文的 MAGMA 对照）语境里，consolidation 指记忆写后的巩固/整合过程
+（把新观察和已有记忆做冗余、矛盾、过时、链接价值的检查）
+所以 consolidation_questions 就是"巩固阶段要回答的那组问题"
+"""
 def consolidation_questions(index):
     pair = f"Compare `new_memory.content` with `candidates[{index}].content`. "
     return {
@@ -108,7 +137,10 @@ def consolidation_questions(index):
             }),
     }
 
-
+"""
+路由问题集
+查询该走哪几张图（6 命题:semantic/temporal/causal/entity + multi_hop_need + recency_importance）
+"""
 def routing_questions():
     return {
         "semantic": noul("Would finding topically or semantically related memories help answer `query`?",
@@ -125,7 +157,10 @@ def routing_questions():
                                    "Current state, latest update or recent status is requested.", "Historical or timeless facts answer the question."),
     }
 
-
+"""
+停止判定问题集
+这轮证据够了吗、要不要停（4 命题: evidence_sufficient / missing_evidence / contradiction / continue_useful）
+"""
 def stopping_questions():
     return {
         "evidence_sufficient": noul("Does `evidence` contain support for every factual part of an answer to `query`?",
@@ -142,7 +177,17 @@ def stopping_questions():
             "Claims agree, differ only by explained temporal updates, or do not affect the answer."),
     }
 
+"""
+遍历评分问题集
+每轮扩展时对本轮所有候选每个 4 命题（前缀 candidate_{i}_）批量判定：
 
+命题	判什么
+relevance	内容里有没有回答问题所需的事实
+relation_usefulness	到达它的图边对这个问题有没有用
+new_information	相比已有证据是否带来新细节
+supports_current_evidence	是否独立佐证已有证据
+四个分数与确定性信号（嵌入相似度、边权重）加权合成转移得分，选波束 Top-10。一句话对照：routing 管走哪几张图，stopping 管停不停，traversal 管下一轮捞谁。
+"""
 def traversal_questions(index):
     candidate = f"candidates[{index}]"
     return {
