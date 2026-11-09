@@ -5,6 +5,12 @@
 *.pem
 *.key
 
+# IDE
+.idea/
+
+# Dify plugin build artifact (rebuild with `dify plugin package ./plugin`)
+*.difypkg
+
 # Python environments and generated files
 .venv/
 venv/

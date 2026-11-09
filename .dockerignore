@@ -1,0 +1,13 @@
+# Build-context hygiene + secret safety for the sidecar image.
+# (Patterns match at any level, per Docker .dockerignore rules.)
+.git/
+.venv/
+.idea/
+.pytest_cache/
+.code-review-graph/
+__pycache__/
+*.pyc
+.env
+cache/
+data/
+*.difypkg
