@@ -82,7 +82,10 @@ class JevClient:
         self.config = config or JevMemConfig.load()
         # CLI entry points load .env; the SDK owns Bearer authentication.
         # An explicit key takes precedence, including an empty key (fail closed).
-        self.api_key = (api_key if api_key is not None else os.getenv("TYPESAFE_API_KEY", "")).strip()
+        # JEV_API_KEY (local/self-hosted endpoint) wins over the legacy TYPESAFE_API_KEY.
+        _jev_env_key = os.getenv("JEV_API_KEY")
+        self.api_key = (api_key if api_key is not None
+                         else _jev_env_key if _jev_env_key is not None else os.getenv("TYPESAFE_API_KEY", "")).strip()
         self.transport = transport
         self.mock = mock
         self.audit = audit or DecisionLog(self.config.audit_path)

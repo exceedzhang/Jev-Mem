@@ -96,7 +96,9 @@ class JevMemConfig:
         allowed = {f.name for f in fields(cls)}
         if set(values) - allowed:
             raise ValueError("Unknown Jev-Mem settings: " + str(sorted(set(values) - allowed)))
-        for env, setting in (("TYPESAFE_DEFAULT_MODEL", "jev_model"), ("TYPESAFE_BASE_URL", "jev_base_url")):
+        # Legacy TYPESAFE_* names first; JEV_* aliases win when both are set.
+        for env, setting in (("TYPESAFE_BASE_URL", "jev_base_url"), ("JEV_BASE_URL", "jev_base_url"),
+                             ("TYPESAFE_DEFAULT_MODEL", "jev_model"), ("JEV_MODEL", "jev_model")):
             if os.getenv(env):
                 values[setting] = os.environ[env]
         values.update({k: v for k, v in overrides.items() if v is not None})
