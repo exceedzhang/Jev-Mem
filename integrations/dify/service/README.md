@@ -106,6 +106,10 @@ docker run -d --name jev-mem \
 | `JEV_MEM_EMBEDDING_MODEL` | 自动 | 显式指定向量后端:`openai`(API)或 `minilm`(本地 sentence-transformers);未设置时 = 设置了 `OPENAI_EMBEDDING_MODEL` 则走 API,否则本地 minilm |
 | `JEV_MEM_PORT` | `8700` | 监听端口 |
 | `JEV_MEM_MAX_NAMESPACES` | `8` | 同时驻留的 namespace 数(LRU 驱逐前自动保存) |
+| `JEV_MEM_STORAGE` | `file` | 存储后端:`file`(默认,文件布局)或 `postgres`(见 `docs/postgresql_storage.md`) |
+| `JEV_MEM_PG_DSN` | 未设置 | `JEV_MEM_STORAGE=postgres` 时必填,未设置则启动即失败 |
+| `JEV_MEM_PG_VECTOR_DIM` | `2560` | pgvector 列维度;必须与 embedding 模型维度一致,否则启动即失败 |
+| `JEV_MEM_GRAPH_STORAGE` | `table` | 图存储实现;`age` 为保留值,暂未实现 |
 
 ## 端点
 

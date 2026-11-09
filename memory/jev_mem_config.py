@@ -50,10 +50,20 @@ class JevMemConfig:
     consolidation_interval: int = 0
     consolidation_threshold: float = 0.85
     audit_path: str = ""
+    storage: str = "file"
+    graph_storage: str = "table"
+    pg_dsn: str = ""
+    pg_vector_dim: int = 2560
 
     def __post_init__(self):
         if self.decision_backend not in ("jev", "laya", "laya-mlx"):
             raise ValueError("decision_backend must be jev, laya or laya-mlx")
+        if self.storage not in ("file", "postgres"):
+            raise ValueError("storage must be file or postgres")
+        if self.graph_storage not in ("table", "age"):
+            raise ValueError("graph_storage must be table or age (age is a reserved, unimplemented knob)")
+        if self.storage == "postgres" and not self.pg_dsn.strip():
+            raise ValueError("pg_dsn is required when storage is postgres (set JEV_MEM_PG_DSN)")
         for name in ("laya_model", "laya_device"):
             if not isinstance(getattr(self, name), str) or not getattr(self, name).strip():
                 raise ValueError(name + " must be a nonempty string")
@@ -67,7 +77,7 @@ class JevMemConfig:
             value = getattr(self, name)
             if isinstance(value, bool) or not math.isfinite(value) or not 0 <= value <= 1:
                 raise ValueError(name + " must be in [0, 1]")
-        for name in ("candidate_top_k", "anchor_count", "answer_top_k", "multihop_top_k", "beam_width", "maximum_nodes", "maximum_edges"):
+        for name in ("candidate_top_k", "anchor_count", "answer_top_k", "multihop_top_k", "beam_width", "maximum_nodes", "maximum_edges", "pg_vector_dim"):
             self._integer(name, 1)
         for name in ("max_retries", "cache_size", "total_graph_budget", "minimum_graph_budget",
                      "maximum_depth", "maximum_jev_calls", "consolidation_interval"):
@@ -98,9 +108,17 @@ class JevMemConfig:
             raise ValueError("Unknown Jev-Mem settings: " + str(sorted(set(values) - allowed)))
         # Legacy TYPESAFE_* names first; JEV_* aliases win when both are set.
         for env, setting in (("TYPESAFE_BASE_URL", "jev_base_url"), ("JEV_BASE_URL", "jev_base_url"),
-                             ("TYPESAFE_DEFAULT_MODEL", "jev_model"), ("JEV_MODEL", "jev_model")):
+                             ("TYPESAFE_DEFAULT_MODEL", "jev_model"), ("JEV_MODEL", "jev_model"),
+                             ("JEV_MEM_STORAGE", "storage"), ("JEV_MEM_PG_DSN", "pg_dsn"),
+                             ("JEV_MEM_GRAPH_STORAGE", "graph_storage")):
             if os.getenv(env):
                 values[setting] = os.environ[env]
+        if os.getenv("JEV_MEM_PG_VECTOR_DIM"):
+            raw = os.environ["JEV_MEM_PG_VECTOR_DIM"].strip()
+            try:
+                values["pg_vector_dim"] = int(raw)
+            except ValueError:
+                raise ValueError("JEV_MEM_PG_VECTOR_DIM must be an integer")
         values.update({k: v for k, v in overrides.items() if v is not None})
         return cls(**values)
 
