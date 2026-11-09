@@ -300,7 +300,7 @@ class TraversalConstraints:
 
         return True
 
-class GraphDBInterface(ABC):
+class GraphStore(ABC):
     """Abstract interface for graph database operations"""
 
     @abstractmethod
@@ -366,7 +366,7 @@ class GraphDBInterface(ABC):
         """Get a subgraph containing specified nodes"""
         pass
 
-class NetworkXGraphDB(GraphDBInterface):
+class FileGraphStore(GraphStore):
     """In-memory graph database implementation using NetworkX"""
 
     def __init__(self):

@@ -80,7 +80,7 @@ class VectorEntry:
             entry.last_accessed = datetime.fromisoformat(data["last_accessed"])
         return entry
 
-class VectorDBInterface(ABC):
+class VectorStore(ABC):
     """Abstract interface for vector database operations"""
 
     @abstractmethod
@@ -131,7 +131,7 @@ class VectorDBInterface(ABC):
         """Clear all vectors from the database"""
         pass
 
-class FAISSVectorDB(VectorDBInterface):
+class FileVectorStore(VectorStore):
     """FAISS-based vector database implementation"""
 
     def __init__(self, dimension: int = 384, index_type: str = "flat",
@@ -388,7 +388,7 @@ class FAISSVectorDB(VectorDBInterface):
             self.next_index = metadata["next_index"]
             self.dimension = metadata["dimension"]
 
-class NumpyVectorDB(VectorDBInterface):
+class NumpyVectorDB(VectorStore):
     """Simple NumPy-based vector database for when FAISS is not available"""
 
     def __init__(self, dimension: int = 384, persist_path: Optional[str] = None):
@@ -602,7 +602,7 @@ class VectorEncoder:
         return self.encode(texts)
 
 def create_vector_db(backend: str = "auto", dimension: int = 1536,
-                    persist_path: Optional[str] = None) -> VectorDBInterface:
+                    persist_path: Optional[str] = None) -> VectorStore:
     """
     Factory function to create appropriate vector database
 
@@ -612,7 +612,7 @@ def create_vector_db(backend: str = "auto", dimension: int = 1536,
         persist_path: Path to persist the database
 
     Returns:
-        VectorDBInterface implementation
+        VectorStore implementation
     """
     if backend == "auto":
         backend = "faiss" if FAISS_AVAILABLE else "numpy"
@@ -621,7 +621,7 @@ def create_vector_db(backend: str = "auto", dimension: int = 1536,
         if not FAISS_AVAILABLE:
             logging.warning("FAISS requested but not available, falling back to NumPy")
             return NumpyVectorDB(dimension, persist_path)
-        return FAISSVectorDB(dimension, persist_path=persist_path)
+        return FileVectorStore(dimension, persist_path=persist_path)
     elif backend == "numpy":
         return NumpyVectorDB(dimension, persist_path)
     else:

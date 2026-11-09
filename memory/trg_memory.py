@@ -18,8 +18,8 @@ from collections import defaultdict
 import re
 
 from .graph_db import (
-    GraphDBInterface,
-    NetworkXGraphDB,
+    GraphStore,
+    FileGraphStore,
     EventNode,
     Link,
     NodeType,
@@ -30,7 +30,7 @@ from .graph_db import (
 )
 
 from .vector_db import (
-    VectorDBInterface,
+    VectorStore,
     VectorEncoder,
     create_vector_db
 )
@@ -68,8 +68,8 @@ class TemporalResonanceGraphMemory:
     """Shared multi-relational graph backend for Jev-Mem"""
 
     def __init__(self,
-                 graph_db: Optional[GraphDBInterface] = None,
-                 vector_db: Optional[VectorDBInterface] = None,
+                 graph_db: Optional[GraphStore] = None,
+                 vector_db: Optional[VectorStore] = None,
                  encoder_model: str = 'all-MiniLM-L6-v2',
                  embedding_model: str = 'minilm',
                  llm_backend: str = 'openai',
@@ -81,7 +81,7 @@ class TemporalResonanceGraphMemory:
         Initialize the graph memory backend
 
         Args:
-            graph_db: Graph database instance (defaults to NetworkXGraphDB)
+            graph_db: Graph database instance (defaults to FileGraphStore)
             vector_db: Vector database instance (defaults to auto-selected)
             encoder_model: Sentence transformer model name
             llm_backend: LLM backend ('openai' or 'ollama')
@@ -90,7 +90,7 @@ class TemporalResonanceGraphMemory:
             enable_async: Enable async processing
         """
         # Initialize databases
-        self.graph_db = graph_db or NetworkXGraphDB()
+        self.graph_db = graph_db or FileGraphStore()
 
         # Initialize keyword enricher
         self.keyword_enricher = KeywordEnricher()
@@ -921,7 +921,7 @@ class TemporalResonanceGraphMemory:
 
         save_path.mkdir(parents=True, exist_ok=True)
 
-        if isinstance(self.graph_db, NetworkXGraphDB):
+        if isinstance(self.graph_db, FileGraphStore):
             self.graph_db.export_to_json(str(save_path / "graph.json"))
 
         self.vector_db.save(str(save_path / "vectors"))
@@ -939,7 +939,7 @@ class TemporalResonanceGraphMemory:
 
         # Load graph database
         graph_file = load_path / "graph.json"
-        if graph_file.exists() and isinstance(self.graph_db, NetworkXGraphDB):
+        if graph_file.exists() and isinstance(self.graph_db, FileGraphStore):
             self.graph_db.import_from_json(str(graph_file))
 
         # Load vector database

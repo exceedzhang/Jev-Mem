@@ -17,8 +17,8 @@ if sys.platform == "darwin":
     os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 _MODULES = {
-    "graph_db": "GraphDBInterface NetworkXGraphDB EventNode Link NodeType LinkType LinkSubType LinkStatus TraversalConstraints",
-    "vector_db": "VectorDBInterface FAISSVectorDB NumpyVectorDB VectorEncoder VectorEntry IndexType create_vector_db",
+    "graph_db": "GraphStore FileGraphStore EventNode Link NodeType LinkType LinkSubType LinkStatus TraversalConstraints",
+    "vector_db": "VectorStore FileVectorStore NumpyVectorDB VectorEncoder VectorEntry IndexType create_vector_db",
     "trg_memory": "TemporalResonanceGraphMemory EventExtractionResult QueryContext",
     "episode_segmenter": "EpisodeSegmenter Episode MessageBuffer BoundaryDetector",
     "temporal_parser": "TemporalParser", "answer_formatter": "AnswerFormatter",
@@ -37,8 +37,8 @@ def __getattr__(name):
     raise AttributeError(name)
 
 __all__ = [
-    'GraphDBInterface',
-    'NetworkXGraphDB',
+    'GraphStore',
+    'FileGraphStore',
     'EventNode',
     'Link',
     'NodeType',
@@ -47,8 +47,8 @@ __all__ = [
     'LinkStatus',
     'TraversalConstraints',
 
-    'VectorDBInterface',
-    'FAISSVectorDB',
+    'VectorStore',
+    'FileVectorStore',
     'NumpyVectorDB',
     'VectorEncoder',
     'VectorEntry',

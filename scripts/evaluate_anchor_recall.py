@@ -26,14 +26,14 @@ def main():
     import numpy as np
     from sentence_transformers import SentenceTransformer
     from jev_mem.datasets.locomo import load_locomo_dataset
-    from memory.graph_db import NetworkXGraphDB
+    from memory.graph_db import FileGraphStore
     from memory.mock_encoder import MockEncoder
     from memory.query_engine import QueryEngine
     from memory.trg_memory import TemporalResonanceGraphMemory
     from memory.vector_db import NumpyVectorDB
 
     cache = Path(args.memory)
-    graph = NetworkXGraphDB()
+    graph = FileGraphStore()
     graph.load(str(cache / "graph.json"))
     trg = TemporalResonanceGraphMemory(graph_db=graph, encoder=MockEncoder(),
         vector_db=NumpyVectorDB(384), llm_backend=None)

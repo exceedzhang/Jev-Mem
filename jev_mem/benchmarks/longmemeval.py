@@ -24,7 +24,7 @@ load_dotenv()
 
 from jev_mem.datasets.longmemeval import load_longmemeval_dataset, LongMemQuestion
 from memory.trg_memory import TemporalResonanceGraphMemory
-from memory.graph_db import NetworkXGraphDB, EventNode, EpisodeNode, Link, LinkType, LinkSubType, NodeType
+from memory.graph_db import FileGraphStore, EventNode, EpisodeNode, Link, LinkType, LinkSubType, NodeType
 from memory.vector_db import NumpyVectorDB
 from memory.query_engine import QueryEngine
 from memory.answer_formatter import AnswerFormatter
@@ -557,7 +557,7 @@ COMPREHENSIVE SUMMARY (include EVERYTHING important):"""
 
         # Initialize TRG
         embedding_dim = 384 if self.embedding_model == "minilm" else 1536
-        graph_db = NetworkXGraphDB()
+        graph_db = FileGraphStore()
         vector_db = NumpyVectorDB(dimension=embedding_dim)
         trg = TemporalResonanceGraphMemory(graph_db, vector_db)
 

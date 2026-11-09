@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from typesafe_sdk import Choice, Noul
 
-from memory.graph_db import EventNode, Link, LinkType, NetworkXGraphDB
+from memory.graph_db import EventNode, Link, LinkType, FileGraphStore
 from memory.jev_client import CallBudget, JevClient, JevUnavailable
 from memory.jev_questions import choice_fixture
 from memory.memory_builder import MemoryBuilder
@@ -392,15 +392,15 @@ def test_magma_read_path_remains_usable(tmp_path):
 
 
 def test_faiss_cache_roundtrip(tmp_path):
-    from memory.vector_db import FAISSVectorDB, FAISS_AVAILABLE
+    from memory.vector_db import FAISS_AVAILABLE, FileVectorStore
     if not FAISS_AVAILABLE:
         pytest.skip("FAISS is optional")
     builder = make_builder(tmp_path)
-    builder.trg.vector_db = FAISSVectorDB(builder.trg.encoder.dimension)
+    builder.trg.vector_db = FileVectorStore(builder.trg.encoder.dimension)
     add_memories(builder, 2)
     builder.save()
     restored = make_builder(tmp_path)
-    restored.trg.vector_db = FAISSVectorDB(restored.trg.encoder.dimension)
+    restored.trg.vector_db = FileVectorStore(restored.trg.encoder.dimension)
     restored.load()
     assert restored.trg.vector_db.size() == 2
     assert restored.trg.stats['events_added'] == 2
@@ -508,6 +508,42 @@ def test_jev_env_aliases_override_legacy_names(monkeypatch):
     monkeypatch.delenv("JEV_MODEL")
     config = JevMemConfig.load()
     assert (config.jev_model, config.jev_base_url) == ("legacy-model", "http://127.0.0.1:8900")
+
+
+def test_storage_defaults_and_env_selection(monkeypatch):
+    for name in ("JEV_MEM_STORAGE", "JEV_MEM_PG_DSN", "JEV_MEM_PG_VECTOR_DIM", "JEV_MEM_GRAPH_STORAGE"):
+        monkeypatch.delenv(name, raising=False)
+    config = JevMemConfig.load()
+    assert (config.storage, config.graph_storage, config.pg_dsn, config.pg_vector_dim) == ("file", "table", "", 2560)
+    monkeypatch.setenv("JEV_MEM_STORAGE", "postgres")
+    monkeypatch.setenv("JEV_MEM_PG_DSN", "postgresql://mem@localhost:5432/jev")
+    monkeypatch.setenv("JEV_MEM_PG_VECTOR_DIM", "1024")
+    monkeypatch.setenv("JEV_MEM_GRAPH_STORAGE", "age")
+    config = JevMemConfig.load()
+    assert (config.storage, config.pg_dsn, config.pg_vector_dim, config.graph_storage) == (
+        "postgres", "postgresql://mem@localhost:5432/jev", 1024, "age")
+
+
+def test_postgres_storage_requires_dsn(monkeypatch):
+    monkeypatch.delenv("JEV_MEM_PG_DSN", raising=False)
+    monkeypatch.setenv("JEV_MEM_STORAGE", "postgres")
+    with pytest.raises(ValueError, match="pg_dsn"):
+        JevMemConfig.load()
+
+
+def test_invalid_storage_settings(monkeypatch):
+    monkeypatch.delenv("JEV_MEM_PG_DSN", raising=False)
+    monkeypatch.delenv("JEV_MEM_PG_VECTOR_DIM", raising=False)
+    monkeypatch.setenv("JEV_MEM_STORAGE", "sqlite")
+    with pytest.raises(ValueError, match="storage"):
+        JevMemConfig.load()
+    monkeypatch.setenv("JEV_MEM_STORAGE", "file")
+    monkeypatch.setenv("JEV_MEM_GRAPH_STORAGE", "neo4j")
+    with pytest.raises(ValueError, match="graph_storage"):
+        JevMemConfig.load()
+    monkeypatch.setenv("JEV_MEM_PG_VECTOR_DIM", "wide")
+    with pytest.raises(ValueError, match="JEV_MEM_PG_VECTOR_DIM"):
+        JevMemConfig.load()
 
 
 @pytest.mark.parametrize("jev_key,typesafe_key,expected", [
