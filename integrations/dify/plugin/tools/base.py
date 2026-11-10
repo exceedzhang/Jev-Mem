@@ -1,41 +1,34 @@
 from typing import Any
 
 from utils.jmem_client import JMemClient, JMemClientError
+from utils import params as _params
 
-RESPONSE_FORMATS = ("both", "json", "text")
-RESULT_MODES = ("answer", "memory")
+RESPONSE_FORMATS = _params.RESPONSE_FORMATS
+RESULT_MODES = _params.RESULT_MODES
+
+__all__ = [
+    "JMemBaseTool",
+    "RESPONSE_FORMATS",
+    "RESULT_MODES",
+    "normalize_response_format",
+    "normalize_result_mode",
+]
 
 
 def normalize_result_mode(value: Any) -> str:
-    """Validate the ``result_mode`` tool parameter.
-
-    ``answer`` (default) lets the sidecar synthesize an answer from the
-    retrieved evidence, ``memory`` returns the raw memory records instead so
-    the calling model can post-process them with its own instructions.
-    """
-    mode = str(value if value is not None else "answer").strip().lower()
-    if mode not in RESULT_MODES:
-        raise JMemClientError(
-            "Parameter 'result_mode' must be one of "
-            f"{', '.join(RESULT_MODES)}; got {value!r}."
-        )
-    return mode
+    """Validate ``result_mode``; invalid values raise ``JMemClientError``."""
+    try:
+        return _params.normalize_result_mode(value)
+    except ValueError as exc:
+        raise JMemClientError(str(exc)) from exc
 
 
 def normalize_response_format(value: Any) -> str:
-    """Validate the ``response_format`` tool parameter.
-
-    ``both`` (default) yields a JSON message and a text message, ``json``
-    yields only the structured ``json`` output, ``text`` only the ``text``
-    output.
-    """
-    fmt = str(value if value is not None else "both").strip().lower()
-    if fmt not in RESPONSE_FORMATS:
-        raise JMemClientError(
-            "Parameter 'response_format' must be one of "
-            f"{', '.join(RESPONSE_FORMATS)}; got {value!r}."
-        )
-    return fmt
+    """Validate ``response_format``; invalid values raise ``JMemClientError``."""
+    try:
+        return _params.normalize_response_format(value)
+    except ValueError as exc:
+        raise JMemClientError(str(exc)) from exc
 
 
 class JMemBaseTool:
