@@ -11,6 +11,7 @@
 | `query_memory` | 有界多跳图检索 + System-Two 答案合成,返回答案、证据与检索 trace(stopping_decision / jev_calls / nodes_visited 等);支持 `result_mode` 切换"直接回答 / 返回原始记忆" |
 | `ingest_memory` | 写入一条观察:Jev typing/准入 → 候选检索 → 关系判断 → 事务插入,返回 `memory_id` |
 | `consolidate_memory` | 对指定 `memory_id` 执行非破坏性巩固(冗余/矛盾/过时判断 + 子类型边) |
+| `get_memory_count` | 返回当前命名空间中的记忆数量(已写入的事件条数),可用于判断何时需要巩固 |
 
 ## 输出格式(text / json)
 
@@ -40,6 +41,14 @@
 - `memory` 模式下 `generated` 为 `false`,不产生 System-Two 调用,更快更省;
 - 两种模式都返回检索 trace,`json` 输出中另有 `result_mode` 字段标明本次所用模式;
 - 参数非法(非 `answer`/`memory`)时返回错误文本,不会调用 sidecar。
+
+## 工作流示例
+
+仓库内置一个可直接导入 Dify 的工作流 DSL(8 节点):
+`../workflows/jev_mem_test.yaml` —— 用户输入非空时写入记忆(命名空间累计少于 3 条
+事件时才写入,之后只查询),输出 `query_answer` / `ingest_result` / `memory_count`。
+在 Dify 中选择「导入 DSL 文件」上传即可;如提示工具标识符不匹配,在节点里重新
+选择一次工具即可(标识符会自动填好)。
 
 ## 凭据
 

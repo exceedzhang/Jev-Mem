@@ -1,0 +1,587 @@
+app:
+  description: ''
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: Jev-Mem-Test
+  use_icon_as_answer_icon: false
+dependencies:
+- current_identifier: null
+  type: package
+  value:
+    plugin_unique_identifier: exceedzhang/jev_mem:0.1.1@ccbd1d7705c1f09be8b359a70f1644b49a6a41ccd03df6511bb12717a6490bb2
+    version: null
+kind: app
+site:
+  chat_color_theme: null
+  chat_color_theme_inverted: false
+  copyright: null
+  custom_disclaimer: ''
+  default_language: en-US
+  description: null
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  input_placeholder: null
+  privacy_policy: null
+  show_workflow_steps: true
+  title: Jev-Mem-Test
+  use_icon_as_answer_icon: false
+version: 0.7.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload: {}
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: start
+        targetType: tool
+      id: 1794235473884-source-1800000000002-target
+      source: '1794235473884'
+      sourceHandle: source
+      target: '1800000000002'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: tool
+        targetType: code
+      id: 1800000000002-source-1800000000003-target
+      source: '1800000000002'
+      sourceHandle: source
+      target: '1800000000003'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: if-else
+      id: 1800000000003-source-1800000000001-target
+      source: '1800000000003'
+      sourceHandle: source
+      target: '1800000000001'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: if-else
+      id: 1800000000001-true-1800000000004-target
+      source: '1800000000001'
+      sourceHandle: 'true'
+      target: '1800000000004'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: tool
+      id: 1800000000001-false-1794235631000-target
+      source: '1800000000001'
+      sourceHandle: 'false'
+      target: '1794235631000'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: tool
+      id: 1800000000004-true-1794235545085-target
+      source: '1800000000004'
+      sourceHandle: 'true'
+      target: '1794235545085'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: if-else
+        targetType: tool
+      id: 1800000000004-false-1794235631000-target
+      source: '1800000000004'
+      sourceHandle: 'false'
+      target: '1794235631000'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: tool
+        targetType: tool
+      id: 1794235545085-source-1794235631000-target
+      source: '1794235545085'
+      sourceHandle: source
+      target: '1794235631000'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: tool
+        targetType: end
+      id: 1794235631000-source-1794235681113-target
+      source: '1794235631000'
+      sourceHandle: source
+      target: '1794235681113'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    - data:
+        selected: false
+        title: 用户输入
+        type: start
+        variables:
+        - default: ''
+          hint: ''
+          label: user_text
+          options: []
+          placeholder: ''
+          required: true
+          type: text-input
+          variable: user_text
+        - default: ''
+          hint: ''
+          label: question
+          options: []
+          placeholder: ''
+          required: true
+          type: text-input
+          variable: question
+      height: 134
+      id: '1794235473884'
+      position:
+        x: 35.5
+        y: 274.5
+      positionAbsolute:
+        x: 35.5
+        y: 274.5
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 0
+    - data:
+        is_team_authorization: true
+        meta: null
+        paramSchemas:
+        - auto_generate: null
+          default: both
+          form: form
+          human_description:
+            en_US: Output format (text, json, or both)
+            zh_Hans: 输出格式，text、json 或两者都返回
+          input_schema: null
+          label:
+            en_US: Response Format
+            zh_Hans: 返回格式
+          llm_description: Output format can be text (the count as plain text), json (structured object), or both (default).
+          max: null
+          min: null
+          multiple: false
+          name: response_format
+          options: []
+          placeholder: null
+          precision: null
+          required: false
+          scope: null
+          template: null
+          type: string
+        params:
+          response_format: ''
+        plugin_id: exceedzhang/jev_mem
+        plugin_unique_identifier: exceedzhang/jev_mem:0.0.9@9bbd55afb37c3d0eade3e823a35e9c3bf4b49141db1d4539b37692cbdab150d4
+        provider_icon: /console/api/workspaces/current/plugin/icon?tenant_id=231b6148-f996-4147-b148-ca6b37a01528&filename=9346d1c45ca39a2fa156b885c754b23c48962f1e269bd112776ca73ec740966e.png
+        provider_icon_dark: null
+        provider_id: exceedzhang/jev_mem/jev_mem
+        provider_name: exceedzhang/jev_mem/jev_mem
+        provider_show_name: Jev-Mem 长期记忆
+        provider_type: builtin
+        selected: false
+        title: 获取记忆数量
+        tool_configurations:
+          response_format:
+            type: constant
+            value: text
+        tool_description: 返回当前命名空间中的记忆数量（已写入的事件条数）。
+        tool_label: 获取记忆数量
+        tool_name: get_memory_count
+        tool_node_version: '2'
+        tool_parameters: {}
+        type: tool
+      height: 86
+      id: '1800000000002'
+      position:
+        x: 335.5
+        y: 274.5
+      positionAbsolute:
+        x: 335.5
+        y: 274.5
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        code: |-
+          def main(raw_count: str) -> dict:
+              try:
+                  count = int(str(raw_count).strip())
+              except (TypeError, ValueError):
+                  count = 0
+              return {"count": count}
+        code_language: python3
+        outputs:
+          count:
+            children: null
+            force: false
+            type: number
+        selected: false
+        title: 计算数量
+        type: code
+        variables:
+        - value_selector:
+          - '1800000000002'
+          - text
+          variable: raw_count
+      height: 54
+      id: '1800000000003'
+      position:
+        x: 635.5
+        y: 274.5
+      positionAbsolute:
+        x: 635.5
+        y: 274.5
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        cases:
+        - case_id: 'true'
+          id: 'true'
+          conditions:
+          - comparison_operator: is not empty
+            id: c1a2b3d4-e5f6-7890-abcd-ef0123456701
+            type: string
+            value: ''
+            variable_selector:
+            - '1794235473884'
+            - user_text
+        selected: false
+        title: 有写入内容？
+        type: if-else
+      height: 134
+      id: '1800000000001'
+      position:
+        x: 935.5
+        y: 274.5
+      positionAbsolute:
+        x: 935.5
+        y: 274.5
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+      zIndex: 0
+    - data:
+        cases:
+        - case_id: 'true'
+          id: 'true'
+          conditions:
+          - comparison_operator: '<'
+            id: d4c5b6a7-e8f9-0123-abcd-ef0123456704
+            type: number
+            value: '3'
+            variable_selector:
+            - '1800000000003'
+            - count
+        selected: false
+        title: 少于3条？
+        type: if-else
+      height: 134
+      id: '1800000000004'
+      position:
+        x: 1235.5
+        y: 274.5
+      positionAbsolute:
+        x: 1235.5
+        y: 274.5
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+      zIndex: 0
+    - data:
+        is_team_authorization: true
+        meta: null
+        paramSchemas:
+        - auto_generate: null
+          default: null
+          form: llm
+          human_description:
+            en_US: The observation to store
+            zh_Hans: 要存储的观察内容
+          input_schema: null
+          label:
+            en_US: Content
+            zh_Hans: 内容
+          llm_description: The observation text to store as a long-term memory.
+          max: null
+          min: null
+          multiple: false
+          name: text
+          options: []
+          placeholder: null
+          precision: null
+          required: true
+          scope: null
+          template: null
+          type: string
+        - auto_generate: null
+          default: null
+          form: form
+          human_description:
+            en_US: Optional ISO 8601 timestamp of the observation
+            zh_Hans: 观察发生的可选 ISO 8601 时间戳
+          input_schema: null
+          label:
+            en_US: Timestamp
+            zh_Hans: 时间戳
+          llm_description: Optional ISO 8601 timestamp of the observation, e.g. 2026-10-12T10:00:00.
+          max: null
+          min: null
+          multiple: false
+          name: timestamp
+          options: []
+          placeholder: null
+          precision: null
+          required: false
+          scope: null
+          template: null
+          type: string
+        - auto_generate: null
+          default: dify
+          form: form
+          human_description:
+            en_US: Where this observation came from
+            zh_Hans: 观察来源
+          input_schema: null
+          label:
+            en_US: Source
+            zh_Hans: 来源
+          llm_description: Where this observation came from (stored in metadata).
+          max: null
+          min: null
+          multiple: false
+          name: source
+          options: []
+          placeholder: null
+          precision: null
+          required: false
+          scope: null
+          template: null
+          type: string
+        params:
+          source: ''
+          text: ''
+          timestamp: ''
+        plugin_id: exceedzhang/jev_mem
+        plugin_unique_identifier: exceedzhang/jev_mem:0.0.9@9bbd55afb37c3d0eade3e823a35e9c3bf4b49141db1d4539b37692cbdab150d4
+        provider_icon: /console/api/workspaces/current/plugin/icon?tenant_id=231b6148-f996-4147-b148-ca6b37a01528&filename=9346d1c45ca39a2fa156b885c754b23c48962f1e269bd112776ca73ec740966e.png
+        provider_icon_dark: null
+        provider_id: exceedzhang/jev_mem/jev_mem
+        provider_name: exceedzhang/jev_mem/jev_mem
+        provider_show_name: Jev-Mem 长期记忆
+        provider_type: builtin
+        selected: false
+        title: 写入记忆
+        tool_configurations:
+          source:
+            type: mixed
+            value: dify-test
+          timestamp:
+            type: mixed
+            value: null
+        tool_description: 将一条观察写入 Jev-Mem 长期记忆图。
+        tool_label: 写入记忆
+        tool_name: ingest_memory
+        tool_node_version: '2'
+        tool_parameters:
+          text:
+            type: mixed
+            value: '{{#1794235473884.user_text#}}'
+        type: tool
+      height: 112
+      id: '1794235545085'
+      position:
+        x: 1535.5
+        y: 174.5
+      positionAbsolute:
+        x: 1535.5
+        y: 174.5
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        is_team_authorization: true
+        meta: null
+        paramSchemas:
+        - auto_generate: null
+          default: null
+          form: llm
+          human_description:
+            en_US: The question to answer from long-term memory
+            zh_Hans: 要从长期记忆中回答的问题
+          input_schema: null
+          label:
+            en_US: Question
+            zh_Hans: 问题
+          llm_description: The question to answer from long-term memory.
+          max: null
+          min: null
+          multiple: false
+          name: question
+          options: []
+          placeholder: null
+          precision: null
+          required: true
+          scope: null
+          template: null
+          type: string
+        - auto_generate: null
+          default: 15
+          form: form
+          human_description:
+            en_US: Number of evidence items to retrieve
+            zh_Hans: 检索返回的证据条数
+          input_schema: null
+          label:
+            en_US: Top K
+            zh_Hans: Top K
+          llm_description: Number of evidence items to retrieve (default 15).
+          max: null
+          min: null
+          multiple: false
+          name: top_k
+          options: []
+          placeholder: null
+          precision: null
+          required: false
+          scope: null
+          template: null
+          type: number
+        params:
+          question: ''
+          top_k: ''
+        plugin_id: exceedzhang/jev_mem
+        plugin_unique_identifier: exceedzhang/jev_mem:0.0.9@9bbd55afb37c3d0eade3e823a35e9c3bf4b49141db1d4539b37692cbdab150d4
+        provider_icon: /console/api/workspaces/current/plugin/icon?tenant_id=231b6148-f996-4147-b148-ca6b37a01528&filename=9346d1c45ca39a2fa156b885c754b23c48962f1e269bd112776ca73ec740966e.png
+        provider_icon_dark: null
+        provider_id: exceedzhang/jev_mem/jev_mem
+        provider_name: exceedzhang/jev_mem/jev_mem
+        provider_show_name: Jev-Mem 长期记忆
+        provider_type: builtin
+        selected: false
+        title: 查询记忆
+        tool_configurations:
+          top_k:
+            type: constant
+            value: 15
+        tool_description: 从 Jev-Mem 图记忆中检索相关长期记忆并合成答案。
+        tool_label: 查询记忆
+        tool_name: query_memory
+        tool_node_version: '2'
+        tool_parameters:
+          question:
+            type: mixed
+            value: '{{#1794235473884.question#}}'
+        type: tool
+      height: 86
+      id: '1794235631000'
+      position:
+        x: 1835.5
+        y: 274.5
+      positionAbsolute:
+        x: 1835.5
+        y: 274.5
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    - data:
+        outputs:
+        - value_selector:
+          - '1794235631000'
+          - json
+          value_type: array[object]
+          variable: query_answer
+        - value_selector:
+          - '1794235545085'
+          - json
+          value_type: array[object]
+          variable: ingest_result
+        - value_selector:
+          - '1800000000003'
+          - count
+          value_type: number
+          variable: memory_count
+        selected: true
+        title: 输出
+        type: end
+      height: 113
+      id: '1794235681113'
+      position:
+        x: 2135.5
+        y: 274.5
+      positionAbsolute:
+        x: 2135.5
+        y: 274.5
+      selected: true
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 0
+    viewport:
+      x: -508.5
+      y: 146.5
+      zoom: 1
+  rag_pipeline_variables: []
