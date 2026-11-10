@@ -35,7 +35,7 @@ COPY requirements.txt ./
 COPY integrations/dify/service/requirements.txt ./service-requirements.txt
 RUN pip install --no-cache-dir \
       -r requirements.txt -r service-requirements.txt \
-      "mcp[cli]>=1.0.0"
+      "mcp[cli]>=2.0.0"
 
 # Source tree the service imports (app.py inserts JEV_MEM_HOME=/app into
 # sys.path). Selective COPY on purpose: a blanket "COPY . /app" would bake
