@@ -342,6 +342,116 @@ tests pass against a freshly created empty database (cold-start simulation of
 the CI path).
 
 ### Checkpoint: Complete
-- [ ] All SPEC.md success criteria met
-- [ ] `scripts/check_public_release.py` clean
-- [ ] Review with human; commit (file mode default untouched throughout)
+- [x] All SPEC.md success criteria met
+- [x] `scripts/check_public_release.py` clean
+- [x] Review with human; commit (file mode default untouched throughout)
+
+Done (2026-11-10): all 11 tasks above implemented, reviewed, and committed
+(2bddcde..ee59f75, pushed). File mode remains the default throughout.
+
+## Phase 3: MCP server (module `mcp`, SPEC-mcp.md)
+
+Thin-client MCP server over HTTP/SSE (port 8701) exposing 4 tools —
+`record_memory` / `recall_memory` / `consolidate_memory` / `memory_stats` —
+that call the existing sidecar's `/v1/memory/*` endpoints. One namespace per
+deployment. OpenCode (and any MCP client) connects remotely.
+
+### Task 12: MCP client + config
+
+**Description:** `integrations/mcp/jmem_client.py` — thin urllib client with
+`ingest()`, `query()`, `consolidate()`, `stats()` mirroring the Dify plugin
+client (auth headers, namespace header, timeout, HTTP/URLError → clean
+`JMemHttpError`/`JMemError` mapping). Server-side config parsing
+(`JEV_MEM_MCP_BASE_URL`, `JEV_MEM_MCP_API_KEY` required/fail-fast,
+`JEV_MEM_MCP_NAMESPACE` default `opencode`, `JEV_MEM_MCP_HOST`/`PORT`
+defaults 0.0.0.0/8701) in `server.py` (or a small `config.py`). Add
+`integrations/mcp/requirements.txt` (`mcp[cli]`) and `.env.example`.
+
+**Acceptance criteria:**
+- [x] Config missing base URL or API key → clear error, no partial startup
+- [x] Client functions map 401/404/500/network errors to readable messages (tested with a fake transport)
+
+**Verification:**
+- [x] `pytest -q tests/test_mcp_server.py` (client + config subset)
+- [x] `python -m py_compile integrations/mcp/*.py`
+
+**Dependencies:** None
+**Files:** `integrations/mcp/jmem_client.py`, `integrations/mcp/server.py` (config part), `integrations/mcp/requirements.txt`, `integrations/mcp/.env.example`, `tests/test_mcp_server.py`
+**Scope:** M
+
+Done (2026-11-10): `integrations/mcp/jmem_client.py` — stdlib-urllib client
+(`ingest`/`query`/`consolidate`/`stats`), `JMemConfig` with env fallbacks and a
+`validate()` that names every missing variable, `JMemClient` mapping HTTP/URL/
+timeout failures to readable `JMemClientError` messages. Config parsing lives in
+`jmem_client.py` (`load_config()`) so `server.py` stays thin. 8 always-run unit
+tests with a recorded fake transport; full suite 249 passed + 27 skipped.
+
+### Task 13: MCP server — 4 tools + SSE transport
+
+**Description:** `integrations/mcp/server.py` — FastMCP app registering
+`record_memory` (text, timestamp?, source?), `recall_memory` (question,
+top_k=15), `consolidate_memory` (memory_id), `memory_stats` (no params);
+each tool validates input → calls the client → returns a single JSON string
+(`{"error": ..., "detail": ...}` on failure, never a traceback).
+`main()` runs the SSE transport on `JEV_MEM_MCP_HOST:JEV_MEM_MCP_PORT`.
+
+**Acceptance criteria:**
+- [x] With a fake client, each tool hits the correct endpoint + payload and returns the expected JSON shape
+- [x] `python integrations/mcp/server.py` starts and serves the SSE endpoint (manual curl check of the SSE handshake)
+
+**Verification:**
+- [x] `pytest -q tests/test_mcp_server.py` (tool mapping subset)
+- [x] Manual: start server, `curl -i http://localhost:8701/sse` returns the SSE stream
+
+**Dependencies:** Task 12
+**Files:** `integrations/mcp/server.py`, `tests/test_mcp_server.py`
+**Scope:** M
+
+Done (2026-11-10): `integrations/mcp/server.py` — built on the installed
+`mcp` 2.x SDK (`from mcp.server.mcpserver import MCPServer`; in 2.x FastMCP was
+renamed MCPServer and host/port go to `run(transport="sse", host=..., port=...)`,
+SSE path `/sse`). Four tools: record_memory / recall_memory / consolidate_memory /
+memory_stats, each a thin wrapper returning one JSON string; sidecar/config
+errors map to `{"error": "sidecar error" | "configuration error", "detail": ...}`,
+never a traceback. 13 always-run unit tests (8 client + 5 server: tool mapping,
+top_k default, error shape, port validation). Verified live: SSE handshake via
+curl, and an official-client round trip against the real sidecar — memory_stats
+empty, then record_memory stored (controller jev, entities [Monday, Notion]) and
+recall_memory answered "Every Monday at 9am" (stopping_decision
+frontier_exhausted). Full suite 254 passed + 27 skipped. Note: clients behind an
+HTTP proxy must set NO_PROXY=localhost for the SSE handshake.
+
+### Task 14: docs + live smoke
+
+**Description:** `integrations/mcp/README.md` — run instructions, env var
+table, OpenCode registration JSON example, namespace-per-deployment note,
+sidecar prerequisites (JEV_MEM_API_KEY on the sidecar side). Root README:
+cross-reference line (Dify/Postgres sections or project layout). Env-gated
+live smoke test: with `JEV_MEM_MCP_TEST_URL` set, one round-trip per tool
+against a running sidecar.
+
+**Acceptance criteria:**
+- [x] A reader can run the server and register it in OpenCode from the README alone
+- [x] Live smoke test skips (not fails) without `JEV_MEM_MCP_TEST_URL`
+
+**Verification:**
+- [x] `pytest -q` full suite (unit + gated smoke skip)
+- [x] `scripts/check_public_release.py --tracked`
+
+**Dependencies:** Task 13
+**Files:** `integrations/mcp/README.md`, `README.md`, `tests/test_mcp_server.py`
+**Scope:** S
+
+Done (2026-11-10): integrations/mcp/README.md — run instructions (env +
+`python server.py`), env var table (JEV_MEM_MCP_BASE_URL/API_KEY/NAMESPACE/
+HOST/PORT), OpenCode registration JSON (`http://localhost:8701/sse`),
+namespace-per-deployment note, sidecar prerequisite (JEV_MEM_API_KEY on the
+sidecar side), and the NO_PROXY proxy caveat. Root README: cross-reference line
+in Configuration and integration + integrations/mcp/ row in Project layout.
+Live smoke test `test_mcp_live_sse_roundtrip` gated on JEV_MEM_MCP_TEST_URL
+(skip-not-fail): connects over SSE, lists the four tools, calls memory_stats —
+verified live (1 passed with the server up). Full suite 254 passed + 28 skipped.
+
+### Checkpoint: MCP complete
+- [x] All SPEC-mcp.md success criteria met
+- [x] OpenCode registration documented; manual agent check listed as the user's final step

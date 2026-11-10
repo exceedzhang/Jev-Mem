@@ -80,3 +80,51 @@ behaviorally untouched. Scope is phases 0–2 of the design document; phase 3
 ## Open questions
 
 None — all resolved in SPEC.md (pooling, partial matching, `age` knob).
+
+---
+
+# Implementation Plan: MCP server (module `mcp`)
+
+Per approved `SPEC-mcp.md` (2026-11-10). Thin-client MCP server over
+HTTP/SSE exposing 4 tools (record/recall/consolidate/stats) that call the
+existing sidecar; OpenCode and other MCP agents connect remotely.
+
+## Architecture Decisions
+- Thin client only: `integrations/mcp/jmem_client.py` (stdlib urllib, same
+  style as the Dify plugin client) → sidecar `/v1/memory/*`; no JevMemSystem,
+  no model code, no DB in the MCP process.
+- Transport: FastMCP SSE, standalone service, default `0.0.0.0:8701`
+  (sidecar keeps 8700).
+- Config via env, fail fast on missing base URL / API key:
+  `JEV_MEM_MCP_BASE_URL`, `JEV_MEM_MCP_API_KEY`, `JEV_MEM_MCP_NAMESPACE`
+  (default `opencode`), `JEV_MEM_MCP_HOST`, `JEV_MEM_MCP_PORT`.
+- One namespace per MCP deployment (multi-tenant = multiple deployments).
+- Tool names 1:1 with the Dify plugin semantics; every tool returns a single
+  JSON string; errors map to `{"error": ..., "detail": ...}` (never a
+  traceback).
+- Unit tests use a monkeypatched fake client (no sidecar needed); a live
+  smoke test is env-gated (`JEV_MEM_MCP_TEST_URL`).
+
+## Task List
+
+### Phase: MCP foundation
+- [ ] Task 12: `jmem_client.py` + server config (client functions, env
+      parsing, fail-fast, requirements.txt, .env.example)
+- [ ] Task 13: `server.py` — FastMCP app, 4 tools, SSE main()
+
+### Phase: MCP tests + docs
+- [ ] Task 14: unit tests (fake client) + live smoke test
+- [ ] Task 15: `integrations/mcp/README.md` (run + OpenCode registration)
+      and root README cross-reference
+
+### Checkpoint: MCP complete
+- [ ] Full suite green (baseline 241 passed + 27 skipped)
+- [ ] OpenCode registration documented; manual check listed as user step
+
+## Risks and Mitigations
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| `mcp` SDK is a new dependency | Low | Spec ask-first item; only `integrations/mcp/requirements.txt`; not installed into the core venv by default requirements |
+| SSE endpoint path/registration details differ per SDK version | Low | Pin the run command in README; unit tests cover tool logic, not transport; manual OpenCode check verifies the wire |
+| Sidecar unreachable / 401 during agent use | Low | Fail fast at startup (config), readable `{"error": ...}` tool output at runtime |
+| Namespace confusion (MCP writes to wrong tenant) | Low | Single namespace per deployment, explicit env var, documented |
