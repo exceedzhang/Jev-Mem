@@ -141,3 +141,46 @@ def test_vector_encoder_resolves_openai_embedding_model_env(monkeypatch):
     assert encoder.encoder.model_name == "custom-embed"
     assert encoder.encoder.send_dimensions is True
     assert encoder.dimension == 1536
+_PG_DSN = os.getenv("JEV_MEM_PG_DSN", "").strip()
+
+
+def test_sidecar_registry_file_mode_ignores_db(monkeypatch, tmp_path):
+    """File mode: registry registration is a no-op and never touches a DB."""
+    app_file = _stage_service(tmp_path)
+    _prep_env(monkeypatch, mock="1")
+    monkeypatch.delenv("JEV_MEM_STORAGE", raising=False)
+    monkeypatch.delenv("JEV_MEM_PG_DSN", raising=False)
+    app = _load_sidecar(monkeypatch, "jev_mem_sidecar_fileRegistry", app_file, tmp_path)
+    assert app.STORAGE == "file"
+    registry = app.NamespaceRegistry()
+    registry._register_in_db("some-ns")  # no-op in filemode
+    assert registry.names() == []
+
+
+@pytest.mark.skipif(not _PG_DSN, reason="JEV_MEM_PG_DSN not set (PG-gated test)")
+def test_sidecar_registry_recovers_namespaces_from_postgres(monkeypatch, tmp_path):
+    """Postgres mode: the table is the registry, so a fresh process (empty
+    in-process dict) still lists the namespaces it created before the restart."""
+    import uuid
+
+    from memory import pg_common
+
+    app_file = _stage_service(tmp_path)
+    _prep_env(monkeypatch, mock="1")
+    monkeypatch.setenv("JEV_MEM_STORAGE", "postgres")
+    monkeypatch.setenv("JEV_MEM_PG_DSN", _PG_DSN)
+    app = _load_sidecar(monkeypatch, "jev_mem_sidecar_pgRegistry", app_file, tmp_path)
+    assert app.STORAGE == "postgres"
+
+    ns = f"sidecar-{uuid.uuid4().hex[:8]}"
+    try:
+        registry = app.NamespaceRegistry()
+        registry._register_in_db(ns)
+        assert pg_common.namespace_exists(_PG_DSN, ns)
+
+        fresh = app.NamespaceRegistry()  # simulate restart
+        assert not fresh._systems
+        assert ns in fresh.names(), "names() must come from the table"
+    finally:
+        pg_common.namespace_delete(_PG_DSN, ns)
+        pg_common.reset_pool()

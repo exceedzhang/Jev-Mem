@@ -28,12 +28,17 @@ Environment:
                             (local); unset = API when OPENAI_EMBEDDING_MODEL is set,
                             otherwise local minilm
     JEV_MEM_PORT            default port (default 8700)
+    JEV_MEM_STORAGE          "file" (default) or "postgres"
+    JEV_MEM_PG_DSN          Postgres connection string (required when
+                             JEV_MEM_STORAGE=postgres)
 """
 import logging
 import os
 import sys
 import threading
+import time
 from collections import OrderedDict
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -67,6 +72,8 @@ PROFILE_PATH = os.getenv("JEV_MEM_PROFILE", str(_HOME / "config" / "jev_mem.json
 CACHE_BASE = Path(os.getenv("JEV_MEM_CACHE_DIR", str(_HOME / "cache" / "dify")))
 MOCK = os.getenv("JEV_MEM_MOCK", "").lower() in ("1", "true", "yes")
 API_KEY = os.getenv("JEV_MEM_API_KEY", "")
+STORAGE = (os.getenv("JEV_MEM_STORAGE") or "file").strip().lower()
+PG_DSN = os.getenv("JEV_MEM_PG_DSN", "").strip()
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
 EMBEDDING_MODEL = os.getenv("JEV_MEM_EMBEDDING_MODEL", "")
 OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "")
@@ -106,9 +113,12 @@ app = FastAPI(title="Jev-Mem Service", version="0.1.0")
 class NamespaceRegistry:
     """One JevMemSystem per namespace (Dify app / tenant), LRU-bounded."""
 
+    _TOUCH_INTERVAL = 5.0  # seconds between last_used_at bumps per namespace
+
     def __init__(self):
         self._lock = threading.RLock()
         self._systems: "OrderedDict[str, JevMemSystem]" = OrderedDict()
+        self._last_touch: Dict[str, float] = {}
 
     def _create(self, namespace: str) -> JevMemSystem:
         cache_dir = CACHE_BASE / namespace
@@ -122,6 +132,10 @@ class NamespaceRegistry:
             builder = MemoryBuilder(str(cache_dir), jev_config=mock_config, trg_memory=trg, llm_enabled=False)
             system = JevMemSystem(cache_dir=str(cache_dir), memory_builder=builder)
         else:
+            if STORAGE == "postgres":
+                # The sidecar namespace is the tenant: point the PG stores at
+                # it instead of the profile's default namespace.
+                config = replace(config, namespace=namespace)
             system = JevMemSystem(model=LLM_MODEL, embedding_model=EMBEDDING_BACKEND,
                                   cache_dir=str(cache_dir), jev_config=config)
         system.load_memory()
@@ -141,14 +155,38 @@ class NamespaceRegistry:
                     except Exception:
                         logger.exception("failed to save evicted namespace %s", evicted_name)
                     logger.info("evicted namespace %s (limit %d)", evicted_name, MAX_NAMESPACES)
+                self._register_in_db(namespace)
                 system = self._create(namespace)
                 self._systems[namespace] = system
             else:
                 self._systems.move_to_end(namespace)
+            self._touch(namespace)
             return system
+
+    def _register_in_db(self, namespace: str) -> None:
+        """Lazily register the namespace row (postgres mode only)."""
+        if STORAGE != "postgres":
+            return
+        from memory import pg_common
+        pg_common.namespace_create(PG_DSN, namespace)
+
+    def _touch(self, namespace: str) -> None:
+        """Bump last_used_at, throttled (postgres mode only)."""
+        if STORAGE != "postgres":
+            return
+        now = time.monotonic()
+        if now - self._last_touch.get(namespace, 0.0) < self._TOUCH_INTERVAL:
+            return
+        from memory import pg_common
+        pg_common.namespace_touch(PG_DSN, namespace)
+        self._last_touch[namespace] = now
 
     def names(self) -> List[str]:
         with self._lock:
+            if STORAGE == "postgres":
+                from memory import pg_common
+                table = set(pg_common.namespace_list(PG_DSN))
+                return sorted(set(self._systems) | table)
             return list(self._systems.keys())
 
 
@@ -212,6 +250,12 @@ def _node_summary(node) -> Dict[str, Any]:
 def health():
     return {"status": "ok", "mock": MOCK, "profile": PROFILE_PATH,
             "cache_base": str(CACHE_BASE), "namespaces": registry.names()}
+
+
+@app.get("/v1/namespaces", dependencies=[Depends(require_api_key)])
+def list_namespaces():
+    """Namespaces registered in this deployment (table-backed in postgres mode)."""
+    return {"namespaces": registry.names()}
 
 
 @app.post("/v1/memory/ingest", dependencies=[Depends(require_api_key)])
