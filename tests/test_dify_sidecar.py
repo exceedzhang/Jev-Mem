@@ -235,3 +235,60 @@ def test_query_endpoint_passes_sort_order(monkeypatch, tmp_path):
     r = client.post("/v1/memory/query", json={"question": "q", "sort": "bogus"})
     assert r.status_code == 422
     assert "sort" in r.json()["detail"]
+
+
+def test_make_summarizer_returns_none_without_llm(monkeypatch, tmp_path):
+    """Mock mode (no System-Two LLM) keeps the decision-only consolidate behavior."""
+    _prep_env(monkeypatch, mock="1")
+    app_module = _load_sidecar(monkeypatch, "sidecar_summarizer_app", _stage_service(tmp_path), tmp_path)
+
+    class _System:
+        llm_controller = None
+
+    assert app_module._make_summarizer(_System()) is None
+
+
+def test_make_summarizer_calls_llm_and_strips_output(monkeypatch, tmp_path):
+    _prep_env(monkeypatch, mock="1")
+    app_module = _load_sidecar(monkeypatch, "sidecar_summarizer_app2", _stage_service(tmp_path), tmp_path)
+
+    calls = []
+
+    class _FakeLLM:
+        def get_completion(self, prompt, response_format=None, temperature=None):
+            calls.append((prompt, response_format, temperature))
+            return "  Anna plans her week in Notion every Monday.  "
+
+    class _FakeLLMController:
+        llm = _FakeLLM()
+
+    class _System:
+        llm_controller = _FakeLLMController()
+
+    summarize = app_module._make_summarizer(_System())
+    result = summarize(["Anna plans in Notion.", "Every Monday, Notion, Anna."])
+    assert result == "Anna plans her week in Notion every Monday."
+    prompt, response_format, temperature = calls[0]
+    assert "Anna plans in Notion." in prompt
+    assert "Every Monday, Notion, Anna." in prompt
+    assert response_format == {"type": "text"}
+    assert temperature == 0.0
+
+
+def test_make_summarizer_raises_on_empty_completion(monkeypatch, tmp_path):
+    _prep_env(monkeypatch, mock="1")
+    app_module = _load_sidecar(monkeypatch, "sidecar_summarizer_app3", _stage_service(tmp_path), tmp_path)
+
+    class _FakeLLM:
+        def get_completion(self, prompt, response_format=None, temperature=None):
+            return "   "
+
+    class _FakeLLMController:
+        llm = _FakeLLM()
+
+    class _System:
+        llm_controller = _FakeLLMController()
+
+    summarize = app_module._make_summarizer(_System())
+    with pytest.raises(RuntimeError, match="empty"):
+        summarize(["a", "b"])

@@ -565,6 +565,20 @@ def test_storage_defaults_and_env_selection(monkeypatch):
         "postgres", "postgresql://mem@localhost:5432/jev", 1024, "age")
 
 
+def test_audit_path_and_consolidation_interval_env(monkeypatch):
+    for name in ("JEV_MEM_AUDIT_PATH", "JEV_MEM_CONSOLIDATION_INTERVAL"):
+        monkeypatch.delenv(name, raising=False)
+    config = JevMemConfig.load()
+    assert (config.audit_path, config.consolidation_interval) == ("", 0)
+    monkeypatch.setenv("JEV_MEM_AUDIT_PATH", "/data/audit.jsonl")
+    monkeypatch.setenv("JEV_MEM_CONSOLIDATION_INTERVAL", "5")
+    config = JevMemConfig.load()
+    assert (config.audit_path, config.consolidation_interval) == ("/data/audit.jsonl", 5)
+    monkeypatch.setenv("JEV_MEM_CONSOLIDATION_INTERVAL", "not-a-number")
+    with pytest.raises(ValueError, match="CONSOLIDATION_INTERVAL"):
+        JevMemConfig.load()
+
+
 def test_postgres_storage_requires_dsn(monkeypatch):
     monkeypatch.delenv("JEV_MEM_PG_DSN", raising=False)
     monkeypatch.setenv("JEV_MEM_STORAGE", "postgres")

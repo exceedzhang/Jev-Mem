@@ -114,7 +114,8 @@ class JevMemConfig:
                              ("TYPESAFE_DEFAULT_MODEL", "jev_model"), ("JEV_MODEL", "jev_model"),
                              ("JEV_MEM_STORAGE", "storage"), ("JEV_MEM_PG_DSN", "pg_dsn"),
                              ("JEV_MEM_GRAPH_STORAGE", "graph_storage"),
-                             ("JEV_MEM_NAMESPACE", "namespace")):
+                             ("JEV_MEM_NAMESPACE", "namespace"),
+                               ("JEV_MEM_AUDIT_PATH", "audit_path")):
             if os.getenv(env):
                 values[setting] = os.environ[env]
         if os.getenv("JEV_MEM_PG_VECTOR_DIM"):
@@ -123,6 +124,12 @@ class JevMemConfig:
                 values["pg_vector_dim"] = int(raw)
             except ValueError:
                 raise ValueError("JEV_MEM_PG_VECTOR_DIM must be an integer")
+        if os.getenv("JEV_MEM_CONSOLIDATION_INTERVAL"):
+            raw = os.environ["JEV_MEM_CONSOLIDATION_INTERVAL"].strip()
+            try:
+                values["consolidation_interval"] = int(raw)
+            except ValueError:
+                raise ValueError("JEV_MEM_CONSOLIDATION_INTERVAL must be an integer")
         values.update({k: v for k, v in overrides.items() if v is not None})
         return cls(**values)
 

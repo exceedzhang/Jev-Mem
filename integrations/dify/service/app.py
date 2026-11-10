@@ -138,6 +138,8 @@ class NamespaceRegistry:
                 config = replace(config, namespace=namespace)
             system = JevMemSystem(model=LLM_MODEL, embedding_model=EMBEDDING_BACKEND,
                                   cache_dir=str(cache_dir), jev_config=config)
+            # Let periodic consolidation build real summary nodes (merge/promote).
+            system.memory_builder.summarizer = _make_summarizer(system)
         system.load_memory()
         logger.info("created namespace %s (mock=%s) at %s", namespace, MOCK, cache_dir)
         return system
@@ -318,11 +320,43 @@ def query_memory(req: QueryRequest):
     }
 
 
+CONSOLIDATION_PROMPT = (
+    "You are consolidating two long-term memories that describe the same subject.\n"
+    "Write one concise paragraph that keeps every concrete detail from both memories "
+    "(names, dates, tools, numbers, preferences) and removes repetition. "
+    "Do not add facts that are not present in either memory.\n"
+    "Return only the consolidated memory text.\n\n"
+    "Memory 1:\n{first}\n\nMemory 2:\n{second}"
+)
+
+
+def _make_summarizer(system):
+    """System-Two summarizer used when consolidation merges or promotes memories.
+
+    Returns None when the system has no LLM (mock mode), which keeps the
+    decision-only behavior: links and decisions are recorded, no summary node.
+    """
+    llm = getattr(system.llm_controller, "llm", None)
+    if llm is None:
+        return None
+
+    def summarize(texts):
+        prompt = CONSOLIDATION_PROMPT.format(first=texts[0], second=texts[1])
+        raw = llm.get_completion(prompt, response_format={"type": "text"}, temperature=0.0)
+        text = raw.strip() if isinstance(raw, str) else ""
+        if not text:
+            raise RuntimeError("System-Two summarizer returned empty text")
+        return text
+
+    return summarize
+
+
 @app.post("/v1/memory/consolidate", dependencies=[Depends(require_api_key)])
 def consolidate(req: ConsolidateRequest):
     system = registry.get(req.namespace or "default")
     try:
-        decisions = system.memory_builder.consolidate(req.memory_id)
+        decisions = system.memory_builder.consolidate(
+            req.memory_id, summarizer=_make_summarizer(system))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     system.save_memory()

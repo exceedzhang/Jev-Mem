@@ -66,6 +66,10 @@ class MemoryBuilder:
         self.write_policy = WritePolicy(self.jev, self.jev_config)
         self._jev_writes = 0
         self._consolidating = False
+        # Optional System-Two summarizer used by the periodic auto-trigger.
+        # The Dify sidecar sets it from its LLM controller; when absent the
+        # consolidation stays decision-only (links recorded, no summary node).
+        self.summarizer = None
         if use_episodes and self.jev_config.write_enabled:
             raise ValueError("Jev-Mem writes use one canonical node per observation; disable --use-episodes")
 
@@ -189,7 +193,7 @@ class MemoryBuilder:
                             temporal_controller="magma", relations_created=dict(relation_counts))
         interval = self.jev_config.consolidation_interval
         if interval and not self._consolidating and self._jev_writes % interval == 0:
-            self.consolidate(node.node_id)
+            self.consolidate(node.node_id, summarizer=self.summarizer)
         return node
 
     def _store_jev_node(self, node, relations):
