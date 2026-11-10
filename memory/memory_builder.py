@@ -160,13 +160,17 @@ class MemoryBuilder:
         if not isinstance(entities, list) or any(not isinstance(e, str) for e in entities):
             raise ValueError("entities must be a list of strings")
         keywords = self.trg.keyword_enricher.extract_keywords(interaction)
-        node = EventNode(timestamp=timestamp, content_narrative=interaction, attributes={
+        # A write without its own timestamp records the write time, so the memory
+        # is dated and time-ordered retrieval has something to sort on. The MAGMA
+        # fallback below keeps its own preference for an extracted timestamp.
+        event_time = timestamp or datetime.now()
+        node = EventNode(timestamp=event_time, content_narrative=interaction, attributes={
             **metadata, "raw_content": interaction, "original_text": metadata.get("original_text", interaction),
             "entities": sorted(set(entities)), "keywords": keywords,
             "jev_mem": {"admission_enabled": self.jev_config.admission_enabled,
                         "admission": admission_data, "admission_score": score,
                         "memory_type": asdict(memory_type), "controller": "mock" if self.jev_config.jev_mock else self.jev_config.decision_backend}})
-        node.attributes["temporal_references"] = self.temporal_parser.describe_references(interaction, timestamp)
+        node.attributes["temporal_references"] = self.temporal_parser.describe_references(interaction, event_time)
         enriched = self.trg.keyword_enricher.enrich_content(interaction, metadata=node.attributes)
         embedding = np.asarray(self.trg.encoder.encode(enriched)).reshape(-1)
         node.embedding_vector = embedding.tolist()

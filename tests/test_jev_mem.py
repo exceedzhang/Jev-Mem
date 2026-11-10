@@ -72,6 +72,16 @@ def test_order_evidence_nodes_time_and_similarity():
         order_evidence_nodes([jan], "bogus")
 
 
+def test_jev_write_defaults_timestamp_to_now(tmp_path):
+    """A Jev-path write without an explicit timestamp records the write time."""
+    builder = make_builder(tmp_path)
+    before = datetime.now()
+    node = builder.build("I fixed the fence on the porch.", None, {})
+    assert node is not None
+    assert node.timestamp is not None
+    assert before <= node.timestamp <= datetime.now()
+
+
 def engine_for(builder):
     return QueryEngine(builder.trg, builder.node_index, jev_config=builder.jev_config, jev_client=builder.jev)
 
@@ -129,7 +139,8 @@ def test_magma_sequence_and_jev_alias_relations_without_timestamps(tmp_path):
     builder = make_builder(tmp_path, mock=mock)
     old = builder.build("Dr. Li moved to Dallas", metadata={"entities": ["Dr. Li"]})
     new = builder.build("Professor Li met Alice before moving", metadata={"entities": ["Professor Li"]})
-    assert new.timestamp is None
+    # Writes that carry no timestamp of their own are dated with the write time.
+    assert old.timestamp is not None and new.timestamp is not None
     edges = list(builder.trg.graph_db.links.values())
     assert any(e.link_type == LinkType.ENTITY and e.metadata["origin"] == "mock" for e in edges)
     assert any(e.link_type == LinkType.TEMPORAL and e.source_node_id == new.node_id and e.target_node_id == old.node_id for e in edges)
@@ -219,6 +230,9 @@ def test_roundtrip_keeps_metadata_edges_vectors_and_missing_time(tmp_path):
     builder = make_builder(tmp_path)
     nodes = add_memories(builder, 2)
     untimed = builder.build("Alice also prefers concise answers")
+    assert untimed.timestamp is not None  # dated with the write time
+    # Nodes without a timestamp (imported or legacy data) still round-trip.
+    builder.trg.graph_db.get_node(untimed.node_id).timestamp = None
     builder.save()
     restored = make_builder(tmp_path)
     restored.load()
