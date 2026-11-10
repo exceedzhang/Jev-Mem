@@ -12,6 +12,8 @@ import numpy as np
 import pytest
 
 from memory import pg_common
+from memory.graph_db import EventNode, Link, LinkType
+from memory.pg_table_graph_store import PGTableGraphStorage
 from memory.pg_vector_store import PgVectorStore
 
 _DSN = os.getenv("JEV_MEM_PG_DSN", "").strip()
@@ -150,3 +152,223 @@ def test_pg_vector_parity_with_file_store(dim, store):
     assert [r[0] for r in file_results] == [r[0] for r in pg_results]
     for (_, fsim, _), (_, psim, _) in zip(file_results, pg_results):
         assert psim == pytest.approx(fsim, abs=2e-3)
+
+
+# --- PGTableGraphStorage (Task 6) -------------------------------------------------
+
+@pytest.fixture()
+def gstore(dsn):
+    namespace = f"g-{os.getpid()}-{np.random.rand():.6f}"
+    store = PGTableGraphStorage(dsn=dsn, namespace=namespace)
+    store.initialize()
+    yield store, namespace
+    with pg_common.connection(dsn) as conn:
+        with conn.transaction():
+            conn.execute("DELETE FROM memory_namespaces WHERE id = %s", (namespace,))
+    pg_common.reset_pool()
+
+
+def _event(node_id: str, narrative: str) -> EventNode:
+    return EventNode(node_id=node_id, content_narrative=narrative)
+
+
+def _causal(source: str, target: str) -> Link:
+    return Link(
+        link_id=f"{source}->{target}",
+        source_node_id=source,
+        target_node_id=target,
+        link_type=LinkType.CAUSAL,
+        properties={"sub_type": "LEADS_TO"},
+    )
+
+
+def test_pg_graph_roundtrip(dsn, gstore):
+    store, namespace = gstore
+    store.add_node(_event("n1", "first"))
+    store.add_node(_event("n2", "second"))
+    store.add_link(_causal("n1", "n2"))
+    # A fresh instance (a different "process") sees the rows from Postgres.
+    fresh = PGTableGraphStorage(dsn=dsn, namespace=namespace)
+    fresh.initialize()
+    assert fresh.get_node("n1") is not None
+    assert fresh.get_node("n1").content_narrative == "first"
+    neighbors = fresh.get_neighbors("n2", LinkType.CAUSAL)
+    assert [n[0].node_id for n in neighbors] == ["n1"]
+    link = fresh.get_link("n1->n2")
+    assert link is not None and link.properties["sub_type"] == "LEADS_TO"
+
+
+def test_pg_graph_write_through_persists(dsn, gstore):
+    store, namespace = gstore
+    store.add_node(_event("a", "one"))
+    store.add_node(_event("b", "two"))
+    store.add_link(_causal("a", "b"))
+    # Directly in Postgres, not just in the writer's memory.
+    with pg_common.connection(dsn) as conn:
+        nodes = conn.execute(
+            "SELECT node_id FROM memory_nodes WHERE namespace_id = %s",
+            (namespace,),
+        ).fetchall()
+        links = conn.execute(
+            "SELECT link_id FROM memory_links WHERE namespace_id = %s",
+            (namespace,),
+        ).fetchall()
+    assert {r[0] for r in nodes} == {"a", "b"}
+    assert [r[0] for r in links] == ["a->b"]
+
+
+def test_pg_graph_external_write_invalidates_reader(dsn, gstore):
+    store, namespace = gstore
+    store.add_node(_event("n1", "one"))
+    reader = PGTableGraphStorage(dsn=dsn, namespace=namespace)
+    reader.initialize()
+    assert reader.get_node("n1") is not None, "first read loads the graph"
+    store.add_node(_event("n2", "two"))  # external write bumps graph_updated_at
+    assert reader.get_node("n2") is not None, "version check must reload"
+
+
+def test_pg_graph_update_node_persists(dsn, gstore):
+    store, namespace = gstore
+    store.add_node(_event("n1", "before"))
+    assert store.update_node("n1", {"content_narrative": "after"}) is True
+    fresh = PGTableGraphStorage(dsn=dsn, namespace=namespace)
+    fresh.initialize()
+    assert fresh.get_node("n1").content_narrative == "after"
+
+
+def test_pg_graph_delete_node_removes_links_in_db(dsn, gstore):
+    store, namespace = gstore
+    store.add_node(_event("n1", "one"))
+    store.add_node(_event("n2", "two"))
+    store.add_link(_causal("n1", "n2"))
+    assert store.delete_node("n1") is True
+    with pg_common.connection(dsn) as conn:
+        links = conn.execute(
+            "SELECT link_id FROM memory_links WHERE namespace_id = %s",
+            (namespace,),
+        ).fetchall()
+    assert links == []
+    fresh = PGTableGraphStorage(dsn=dsn, namespace=namespace)
+    fresh.initialize()
+    assert fresh.get_node("n1") is None
+    assert fresh.get_node("n2") is not None
+
+
+def test_pg_graph_delete_namespace_cascades(dsn, gstore):
+    store, namespace = gstore
+    store.add_node(_event("n1", "one"))
+    store.delete_namespace(namespace)
+    with pg_common.connection(dsn) as conn:
+        rows = conn.execute(
+            "SELECT id FROM memory_namespaces WHERE id = %s", (namespace,)
+        ).fetchall()
+    assert rows == []
+
+
+# --- keyword posting (Task 7) ------------------------------------------------------
+
+def test_pg_graph_keyword_roundtrip(dsn, gstore):
+    store, namespace = gstore
+    store.add_node(_event("n1", "hello world"))
+    store.index_node_terms("n1", ["hello", "hello world"])
+    store.add_node(_event("n2", "another"))
+    store.index_node_terms("n2", ["hello"])
+    fresh = PGTableGraphStorage(dsn=dsn, namespace=namespace)
+    fresh.reload()
+    assert fresh.keyword_index == {
+        "hello": {"n1", "n2"},
+        "hello world": {"n1"},
+    }, "the posting dict reloads together with the graph cache"
+
+
+def test_pg_graph_keyword_dedup_and_reindex(dsn, gstore):
+    store, namespace = gstore
+    store.add_node(_event("n1", "a b c"))
+    store.index_node_terms("n1", ["a", "b"])
+    store.index_node_terms("n1", ["b", "c"])
+    with pg_common.connection(dsn) as conn:
+        rows = conn.execute(
+            "SELECT term FROM memory_keywords WHERE node_id = %s ORDER BY term",
+            ("n1",),
+        ).fetchall()
+    assert [r[0] for r in rows] == ["a", "b", "c"], "duplicate terms must not insert twice"
+
+    store.reindex_node_terms("n1", ["z"])
+    with pg_common.connection(dsn) as conn:
+        rows = conn.execute(
+            "SELECT term FROM memory_keywords WHERE node_id = %s", ("n1",)
+        ).fetchall()
+    assert [r[0] for r in rows] == ["z"], "reindex replaces the node's old terms"
+    assert store.keyword_index == {"z": {"n1"}}
+
+
+def test_pg_graph_keyword_cascade_on_node_delete(dsn, gstore):
+    store, namespace = gstore
+    store.add_node(_event("n1", "x"))
+    store.index_node_terms("n1", ["x"])
+    store.delete_node("n1")
+    with pg_common.connection(dsn) as conn:
+        count = conn.execute(
+            "SELECT count(*) FROM memory_keywords WHERE node_id = %s", ("n1",)
+        ).fetchone()[0]
+    assert count == 0, "node deletion must cascade to keyword rows"
+
+
+# --- namespace management (Task 8) ---------------------------------------------
+
+def test_pg_namespace_register_exists_list(dsn):
+    ns = f"ns-{os.getpid()}-{np.random.rand():.6f}"
+    assert pg_common.namespace_create(dsn, ns) is True, "first create registers"
+    assert pg_common.namespace_create(dsn, ns) is False, "second create is a no-op"
+    assert pg_common.namespace_exists(dsn, ns)
+    assert ns in pg_common.namespace_list(dsn)
+
+
+def test_pg_namespace_delete_cascades(dsn, gstore):
+    store, namespace = gstore
+    store.add_node(_event("c1", "cascade"))
+    store.index_node_terms("c1", ["kw"])
+    assert pg_common.namespace_delete(dsn, namespace) is True
+    assert not pg_common.namespace_exists(dsn, namespace)
+    with pg_common.connection(dsn) as conn:
+        nodes = conn.execute(
+            "SELECT count(*) FROM memory_nodes WHERE namespace_id = %s", (namespace,)
+        ).fetchone()[0]
+        kws = conn.execute(
+            "SELECT count(*) FROM memory_keywords WHERE namespace_id = %s", (namespace,)
+        ).fetchone()[0]
+    assert nodes == 0 and kws == 0, "namespace delete must cascade to child rows"
+
+
+def test_pg_namespace_touch_bumps_last_used(dsn, gstore):
+    import time
+
+    store, namespace = gstore
+    with pg_common.connection(dsn) as conn:
+        before = conn.execute(
+            "SELECT last_used_at FROM memory_namespaces WHERE id = %s", (namespace,)
+        ).fetchone()[0]
+    time.sleep(0.02)
+    pg_common.namespace_touch(dsn, namespace)
+    with pg_common.connection(dsn) as conn:
+        after = conn.execute(
+            "SELECT last_used_at FROM memory_namespaces WHERE id = %s", (namespace,)
+        ).fetchone()[0]
+    assert after > before, "touch must bump last_used_at"
+
+
+def test_pg_graph_load_bumps_last_used(dsn, gstore):
+    import time
+
+    store, namespace = gstore
+    with pg_common.connection(dsn) as conn:
+        before = conn.execute(
+            "SELECT last_used_at FROM memory_namespaces WHERE id = %s", (namespace,)
+        ).fetchone()[0]
+    time.sleep(0.02)
+    store.reload()  # forces _load_from_db, which must bump last_usedAt
+    with pg_common.connection(dsn) as conn:
+        after = conn.execute(
+            "SELECT last_used_at FROM memory_namespaces WHERE id = %s", (namespace,)
+        ).fetchone()[0]
+    assert after > before, "a namespace load must bump last_usedAt"

@@ -73,7 +73,8 @@ class MemoryBuilder:
             llm_backend='openai' if llm_enabled else None,
             llm_model=llm_model,
             enable_async=False,
-            embedding_model=embedding_model
+            embedding_model=embedding_model,
+            jev_config=self.jev_config,
         )
         if trg_memory is None:
             # Load graph and vectors together only in load(). Passing persist_dir
@@ -111,6 +112,7 @@ class MemoryBuilder:
 
         self.entities = {}
         self.node_index = {}
+        self._node_terms = {}
         self.episode_nodes = []
         self.episode_event_map = {}
         self.session_nodes = {}
@@ -679,20 +681,23 @@ class MemoryBuilder:
 
         text = text.lower()
         words = text.split()
+        terms = set()
 
         for word in words:
             word = word.strip('.,!?;:"')
             if len(word) >= 2:
-                if word not in self.node_index:
-                    self.node_index[word] = set()
-                self.node_index[word].add(event_id)
+                terms.add(word)
 
         for i in range(len(words) - 1):
             bigram = f"{words[i]} {words[i + 1]}"
             bigram = bigram.strip('.,!?;:"')
-            if bigram not in self.node_index:
-                self.node_index[bigram] = set()
-            self.node_index[bigram].add(event_id)
+            terms.add(bigram)
+
+        for term in terms:
+            if term not in self.node_index:
+                self.node_index[term] = set()
+            self.node_index[term].add(event_id)
+        self._node_terms.setdefault(event_id, set()).update(terms)
 
     def index_event(self, event_id: str, text: str, metadata: dict = None):
         """
@@ -726,6 +731,22 @@ class MemoryBuilder:
             for keyword in metadata.get('context_keywords', []):
                 if keyword:
                     self._index_text_basic(event_id, keyword)
+
+        self._flush_node_terms(event_id)
+
+    def _flush_node_terms(self, event_id: str) -> None:
+        """Persist this node's keyword postings when the backend has a table.
+
+        The file backend keeps everything in ``self.node_index``; the Postgres
+        graph store (``index_node_terms``) also stores them in
+        ``memory_keywords`` so the posting dict reloads with the graph cache.
+        """
+        terms = self._node_terms.pop(event_id, None)
+        if not terms:
+            return
+        persist = getattr(getattr(self.trg, "graph_db", None), "index_node_terms", None)
+        if persist is not None:
+            persist(event_id, terms)
 
     def create_temporal_links(self, nodes: List[str], *, latest_only: bool = False) -> int:
         """MAGMA sequence links; optionally append only the final observation."""
@@ -1343,6 +1364,15 @@ class MemoryBuilder:
             with open(index_path, 'r') as f:
                 index_data = json.load(f)
                 self.node_index = {k: set(v) for k, v in index_data.items()}
+
+        # The Postgres graph store keeps the same posting dict in memory_keywords;
+        # file mode has no such attribute, so this is a no-op there.
+        store = getattr(self.trg, "graph_db", None)
+        if hasattr(store, "keyword_index") and hasattr(store, "reload"):
+            store.reload()
+            self.node_index = {
+                term: set(ids) for term, ids in store.keyword_index.items()
+            }
 
         episode_path = source_dir / "episodes.json"
         if episode_path.exists():

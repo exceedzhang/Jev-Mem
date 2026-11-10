@@ -76,7 +76,8 @@ class TemporalResonanceGraphMemory:
                  llm_model: str = 'gpt-4o-mini',
                  persist_dir: Optional[str] = None,
                  enable_async: bool = False,
-                 encoder=None):
+                 encoder=None,
+                 jev_config=None):
         """
         Initialize the graph memory backend
 
@@ -90,6 +91,10 @@ class TemporalResonanceGraphMemory:
             enable_async: Enable async processing
         """
         # Initialize databases
+        if graph_db is None and jev_config is not None and jev_config.storage == "postgres":
+            from .pg_table_graph_store import PGTableGraphStorage
+            graph_db = PGTableGraphStorage(dsn=jev_config.pg_dsn,
+                                         namespace=jev_config.namespace)
         self.graph_db = graph_db or FileGraphStore()
 
         # Initialize keyword enricher
@@ -102,11 +107,22 @@ class TemporalResonanceGraphMemory:
             self.encoder = VectorEncoder(model_name='text-embedding-3-small', use_openai=True)
         else:  # minilm
             self.encoder = VectorEncoder(model_name=encoder_model, use_openai=False)
-        self.vector_db = vector_db or create_vector_db(
-            backend="auto",
-            dimension=self.encoder.dimension,
-            persist_path=str(Path(persist_dir) / "vectors") if persist_dir else None
-        )
+        # Choose the vector store: Postgres when configured, else the file
+        # backend. psycopg is only imported in the postgres branch, so
+        # file-mode deployments never load it.
+        if jev_config is not None and jev_config.storage == "postgres":
+            from .pg_vector_store import PgVectorStore
+            self.vector_db = vector_db or PgVectorStore(
+                jev_config.pg_vector_dim,
+                dsn=jev_config.pg_dsn,
+                namespace=jev_config.namespace,
+            )
+        else:
+            self.vector_db = vector_db or create_vector_db(
+                backend="auto",
+                dimension=self.encoder.dimension,
+                persist_path=str(Path(persist_dir) / "vectors") if persist_dir else None
+            )
 
         # Initialize LLM if available
         self.llm_controller = None
