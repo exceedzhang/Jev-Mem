@@ -546,6 +546,37 @@ def test_invalid_storage_settings(monkeypatch):
         JevMemConfig.load()
 
 
+def test_pg_common_requires_dsn():
+    from memory import pg_common
+
+    with pytest.raises(ValueError, match="JEV_MEM_PG_DSN"):
+        pg_common.resolve_dsn("   ")
+    assert pg_common.resolve_dsn(" postgresql://mem@localhost/jev ") == "postgresql://mem@localhost/jev"
+
+
+def test_pg_common_schema_ddl():
+    from memory import pg_common
+
+    ddl = "\n".join(pg_common.namespace_ddl(1024))
+    tables = ["memory_namespaces", "memory_nodes", "memory_links", "memory_keywords", "memory_vectors"]
+    positions = [ddl.index(f"CREATE TABLE IF NOT EXISTS {table}") for table in tables]
+    assert positions == sorted(positions), "tables must be created in dependency order"
+    assert "halfvec(1024)" in ddl
+    assert "graph_updated_at" in ddl and "last_used_at" in ddl
+    with pytest.raises(ValueError, match="dimension"):
+        pg_common.namespace_ddl(0)
+
+
+def test_pg_common_validates_vector_dimension():
+    from memory import pg_common
+
+    import numpy as np
+
+    pg_common.validate_vector_dimension(np.zeros(4, dtype=np.float32), 4)
+    with pytest.raises(ValueError, match="JEV_MEM_PG_VECTOR_DIM"):
+        pg_common.validate_vector_dimension(np.zeros(3, dtype=np.float32), 4)
+
+
 @pytest.mark.parametrize("jev_key,typesafe_key,expected", [
     ("jev-env-key", "typesafe-env-key", "jev-env-key"),
     ("", "typesafe-env-key", ""),

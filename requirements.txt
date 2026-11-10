@@ -23,3 +23,6 @@ tqdm>=4.65.0
 python-dateutil>=2.8.0
 httpx>=0.27,<1
 
+# Postgres storage backend (JEV_MEM_STORAGE=postgres)
+psycopg[binary,pool]>=3.1
+
