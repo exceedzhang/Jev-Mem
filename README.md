@@ -18,6 +18,10 @@ the evidence it finds.
 
 ## 🔥 News 🔥
 
+- **2026-11-10 · MCP server for agents.** The sidecar's memory API is now
+  exposed to MCP-compatible agents (e.g. OpenCode) through a standalone
+  HTTP+SSE server with four tools — record, recall, consolidate, and stats.
+  See [MCP integration](#mcp-integration).
 - **2026-11-10 · PostgreSQL storage backend (optional).** Jev-Mem can now
   persist vectors, the memory graph, keyword indexes, and namespace metadata in
   a single PostgreSQL database via pgvector. The file layout remains the
@@ -37,6 +41,7 @@ for the comparisons.
 [Results](#results-on-locomo) · [How it works](#how-it-works) ·
 [Quick start](#quick-start) · [Run experiments](#run-experiments) ·
 [Dify integration](#dify-integration) ·
+[MCP integration](#mcp-integration) ·
 [PostgreSQL storage](#postgresql-storage-backend) ·
 [Contribute](#contributing) · [Citation](#citation)
 
@@ -365,6 +370,55 @@ See the [plugin README](integrations/dify/plugin/README.md) for tool usage
 patterns and the [sidecar README](integrations/dify/service/README.md) for the
 complete HTTP endpoint reference.
 
+## MCP integration
+
+For MCP-compatible agents (OpenCode, Claude Code, IDE assistants, …), Jev-Mem
+ships a standalone **MCP server** (HTTP + SSE, default `0.0.0.0:8701`). Like
+the Dify plugin it is a thin client: the server only translates MCP tool calls
+into HTTP requests to the sidecar, so models, namespaces, storage, and
+authentication all stay in the sidecar.
+
+| Tool | What it does |
+| --- | --- |
+| `record_memory(text, timestamp?, source?)` | Writes one observation; returns the stored `memory_id` |
+| `recall_memory(question, top_k=15)` | Bounded controlled retrieval plus System-Two answer synthesis |
+| `consolidate_memory(memory_id)` | Non-destructive consolidation for one stored memory |
+| `memory_stats()` | Namespace storage statistics (nodes, events, links, vectors) |
+
+Each tool returns a single JSON string; failures come back as
+`{"error": …, "detail": …}` instead of a traceback. One namespace per
+deployment, chosen with `JEV_MEM_MCP_NAMESPACE` (default `opencode`).
+
+### Running the server
+
+```bash
+pip install -r integrations/mcp/requirements.txt
+
+JEV_MEM_MCP_BASE_URL=http://localhost:8700 \
+JEV_MEM_MCP_API_KEY=... \
+python integrations/mcp/server.py
+```
+
+`JEV_MEM_MCP_HOST` and `JEV_MEM_MCP_PORT` override the bind address.
+
+### Registering it in OpenCode
+
+```json
+{
+  "mcp": {
+    "jev-mem": {
+      "type": "remote",
+      "url": "http://localhost:8701/sse",
+      "enabled": true
+    }
+  }
+}
+```
+
+Agents behind an HTTP proxy need `NO_PROXY=localhost,127.0.0.1` so the SSE
+client reaches the local server. Full reference and the environment-variable
+table: [integrations/mcp/README.md](integrations/mcp/README.md).
+
 ## PostgreSQL storage backend
 
 By default Jev-Mem stores each namespace as a directory of files
@@ -379,6 +433,45 @@ unchanged; Postgres is opt-in and the two backends are interchangeable (see
 The design and schema are documented in
 [docs/postgresql_storage.md](docs/postgresql_storage.md); this section covers
 day-to-day use.
+
+```mermaid
+flowchart LR
+    subgraph Dify["Dify"]
+        P["jev_mem plugin<br/>(ingest / query / consolidate / count)"]
+    end
+
+    subgraph Sidecar["Jev-Mem sidecar (FastAPI)"]
+        S["JevMemSystem per namespace<br/>(Jev decisions + LLM synthesis)"]
+    end
+
+    subgraph Models["Model endpoints (HTTP)"]
+        LLM["LLM — OpenAI-compatible<br/>chat/completions"]
+        EMB["Embedding — OpenAI-compatible<br/>embeddings"]
+        JEV["Jev API (System-One)<br/>/v1/systemone"]
+    end
+
+    subgraph Backend["Storage — JEV_MEM_STORAGE"]
+        subgraph File["file (default)"]
+            F1["vectors/index.faiss"]
+            F2["graph.json"]
+            F3["keyword_index.json"]
+            F4["jev_mem_config.json"]
+        end
+        subgraph PG["postgres"]
+            G1["memory_vectors<br/>halfvec(N)"]
+            G2["memory_nodes / memory_links<br/>JSONB + B-tree"]
+            G3["memory_keywords"]
+            G4["memory_namespaces"]
+        end
+    end
+
+    P -->|HTTP + Bearer API key| S
+    S -->|chat/completions| LLM
+    S -->|embeddings| EMB
+    S -->|memory decisions| JEV
+    S --> File
+    S --> PG
+```
 
 ### What is stored where
 
@@ -482,6 +575,7 @@ when updating older integrations.
 
 For Dify, see [Dify integration](#dify-integration). For the optional
 PostgreSQL storage backend, see [PostgreSQL storage](#postgresql-storage-backend).
+For MCP agent access, see [MCP integration](#mcp-integration).
 
 ## Project layout
 
@@ -493,6 +587,7 @@ PostgreSQL storage backend, see [PostgreSQL storage](#postgresql-storage-backend
 | `config/` | Validated experiment profiles |
 | `examples/` / `data/` | Synthetic examples / local external datasets |
 | `integrations/dify/` | Dify sidecar service and tool plugin (HTTP + tools) |
+| `integrations/mcp/` | MCP server exposing the sidecar's memory API over HTTP+SSE (record/recall/consolidate/stats) |
 | `tests/` | Offline regression and compatibility tests |
 | `scripts/` | Release checks, exports, retrieval diagnostics, and the one-shot Postgres migration |
 | `docs/` | Developer guides and architecture figures |
