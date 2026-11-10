@@ -18,6 +18,10 @@ the evidence it finds.
 
 ## 🔥 News 🔥
 
+- **2026-11-10 · PostgreSQL storage backend (optional).** Jev-Mem can now
+  persist vectors, the memory graph, keyword indexes, and namespace metadata in
+  a single PostgreSQL database via pgvector. The file layout remains the
+  default and is fully unchanged; see [PostgreSQL storage](#postgresql-storage-backend).
 - **2026-09-27 · Laya integration.** Jev-Mem now supports [Laya](https://huggingface.co/convaiinnovations/laya)
   for local System-One decisions.
   The same memory pipeline works with either Jev or Laya. [Get started ↓](#use-local-laya)
@@ -33,6 +37,7 @@ for the comparisons.
 [Results](#results-on-locomo) · [How it works](#how-it-works) ·
 [Quick start](#quick-start) · [Run experiments](#run-experiments) ·
 [Dify integration](#dify-integration) ·
+[PostgreSQL storage](#postgresql-storage-backend) ·
 [Contribute](#contributing) · [Citation](#citation)
 
 ![Jev-Mem architecture: System-One control guides writing and retrieval over shared multi-relational memory, with System Two synthesizing the answer.](docs/figures/overall_structure.png)
@@ -360,6 +365,95 @@ See the [plugin README](integrations/dify/plugin/README.md) for tool usage
 patterns and the [sidecar README](integrations/dify/service/README.md) for the
 complete HTTP endpoint reference.
 
+## PostgreSQL storage backend
+
+By default Jev-Mem stores each namespace as a directory of files
+(`graph.json`, FAISS index, keyword index, config). For multi-process or
+multi-container deployments — or when you want backups, transactions, and
+per-tenant namespaces managed in one place — it can persist all of that in a
+single **PostgreSQL + [pgvector](https://github.com/pgvector/pgvector)**
+database instead. The file layout remains the default and is behaviorally
+unchanged; Postgres is opt-in and the two backends are interchangeable (see
+[migration](#migrating-an-existing-file-layout)).
+
+The design and schema are documented in
+[docs/postgresql_storage.md](docs/postgresql_storage.md); this section covers
+day-to-day use.
+
+### What is stored where
+
+| Data | File layout (default) | PostgreSQL backend |
+| --- | --- | --- |
+| Vectors | FAISS `index.faiss` per namespace | `memory_vectors`, `halfvec(N)` columns, exact L2 search |
+| Memory graph | `graph.json` per namespace | `memory_nodes` / `memory_links` (JSONB payload + B-tree indexes, no Apache AGE extension needed) |
+| Keyword index | `keyword_index.json` per namespace | `memory_keywords` posting table |
+| Namespace metadata | one directory per namespace | `memory_namespaces` registry (create / list / delete cascade, `last_used_at`) |
+
+### Enabling it
+
+Point the sidecar (or any Python process) at Postgres with two variables:
+
+```dotenv
+JEV_MEM_STORAGE=postgres
+JEV_MEM_PG_DSN=postgresql://user:password@host:5432/jev_mem
+```
+
+`JEV_MEM_PG_DSN` is a standard Postgres **connection string**
+(`postgresql://user:password@host:port/db`). It is required whenever
+`JEV_MEM_STORAGE=postgres` — startup fails fast if it is missing, and the
+value must never be committed (put it in your local `.env`). Related
+variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `JEV_MEM_STORAGE` | `file` | Storage backend: `file` (default) or `postgres` |
+| `JEV_MEM_PG_DSN` | — | Postgres connection string; required for `postgres` |
+| `JEV_MEM_PG_VECTOR_DIM` | `2560` | Vector dimension used to create the `halfvec(N)` column; must match your embedding model (a mismatch fails fast at startup) |
+| `JEV_MEM_GRAPH_STORAGE` | `table` | Graph backend inside Postgres; `table` is the supported implementation (`age` is a reserved, documented knob, not implemented) |
+
+A local development database is one command:
+
+```bash
+docker run -d --name jev-mem-pg -e POSTGRES_PASSWORD=postgres \
+  -p 15432:5432 pgvector/pgvector:pg18
+```
+
+with `JEV_MEM_PG_DSN=postgresql://postgres:postgres@localhost:15432/jev_mem`.
+CI runs the same container as a service on the ubuntu job, so the Postgres
+tests execute there and skip (not fail) where no DSN is configured.
+
+### Migrating an existing file layout
+
+`scripts/migrate_to_postgres.py` imports an existing file layout (or the
+sidecar's `JEV_MEM_CACHE_DIR`) into Postgres. It reads `graph.json`, the vector
+metadata, the keyword index, and the resolved config per namespace, imports
+them in one transaction per namespace, verifies the row counts, and reports a
+summary:
+
+```bash
+python scripts/migrate_to_postgres.py \
+  --source ./jev_mem_cache \
+  --dsn postgresql://postgres:postgres@localhost:15432/jev_mem
+```
+
+The source can be a single namespace directory or a directory containing
+several. The dimension comes from the source (`vectors/metadata.json`), so
+`halfvec(N)` is created with the dimension already in use. Re-running on a
+namespace that already has data fails clearly unless you pass `--force`, which
+deletes (cascades) the namespace and re-imports it.
+
+### Operational notes
+
+- The Postgres backend writes through on every mutation; the graph is also kept
+  in an in-memory NetworkX cache per namespace, with `graph_updated_at` version
+  checks + a TTL so multi-process deployments stay consistent.
+- Vector search is an exact L2 scan by design (identical recall to the FAISS
+  `flat` default). An ANN index (HNSW/IVF) is deliberately not added until a
+  single namespace passes ~1e5 vectors, at which point a per-namespace
+  partial/partitioned index is the correct choice.
+- Switching embedding models changes vector dimensions; migrate into a fresh
+  database or clear the old vectors first, as you would with the file layout.
+
 ## Configuration and integration
 
 Start with [config/jev_mem.json](config/jev_mem.json). All validated fields and
@@ -386,7 +480,8 @@ Use [JevMemSystem](jev_mem/system.py),
 with `jev_config=...`. See the [naming and migration guide](docs/architecture.md#naming-and-migration)
 when updating older integrations.
 
-For Dify, see [Dify integration](#dify-integration).
+For Dify, see [Dify integration](#dify-integration). For the optional
+PostgreSQL storage backend, see [PostgreSQL storage](#postgresql-storage-backend).
 
 ## Project layout
 
@@ -399,7 +494,7 @@ For Dify, see [Dify integration](#dify-integration).
 | `examples/` / `data/` | Synthetic examples / local external datasets |
 | `integrations/dify/` | Dify sidecar service and tool plugin (HTTP + tools) |
 | `tests/` | Offline regression and compatibility tests |
-| `scripts/` | Release checks, exports, and retrieval diagnostics |
+| `scripts/` | Release checks, exports, retrieval diagnostics, and the one-shot Postgres migration |
 | `docs/` | Developer guides and architecture figures |
 
 See the [developer guide](docs/architecture.md) for module responsibilities and
