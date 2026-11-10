@@ -125,16 +125,6 @@ def _load_keywords(directory: Path) -> list[tuple[str, str]]:
     ]
 
 
-def _file_row_counts(directory: Path) -> dict[str, int]:
-    nodes, links = _load_graph(directory)
-    return {
-        "nodes": len(nodes),
-        "links": len(links),
-        "vectors": len(_load_vectors(directory)),
-        "keywords": len(_load_keywords(directory)),
-    }
-
-
 def _db_row_counts(conn, namespace: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for key, table in (
@@ -175,6 +165,15 @@ def _check_existing_dimension(conn, dimension: int) -> None:
             "table has one dimension (set JEV_MEM_PG_VECTOR_DIM to match the "
             "embedding model or migrate into a fresh database)"
         )
+
+
+def _insert_many(conn, sql: str, rows: list[tuple]) -> None:
+    """Batched executemany via a cursor (psycopg 3's ``conn.execute`` does not
+    auto-batch a list of parameter tuples). Empty ``rows`` is a no-op."""
+    if not rows:
+        return
+    with conn.cursor() as cur:
+        cur.executemany(sql, rows)
 
 
 def migrate_namespace(pg_dsn: str, namespace: str, directory, dimension: int,
@@ -219,57 +218,53 @@ def migrate_namespace(pg_dsn: str, namespace: str, directory, dimension: int,
                 (namespace, json.dumps(config)),
             )
 
-            if nodes:
-                with conn.cursor() as cur:
-                    cur.executemany(
-                        "INSERT INTO memory_nodes "
-                        "(namespace_id, node_id, node_type, node) "
-                        "VALUES (%s, %s, %s, %s::jsonb) "
-                        "ON CONFLICT (namespace_id, node_id) DO NOTHING",
-                        [
-                            (namespace, node["node_id"],
-                             node.get("node_type", "EVENT"), json.dumps(node))
-                            for node in nodes
-                        ],
-                    )
+            _insert_many(
+                conn,
+                "INSERT INTO memory_nodes "
+                "(namespace_id, node_id, node_type, node) "
+                "VALUES (%s, %s, %s, %s::jsonb) "
+                "ON CONFLICT (namespace_id, node_id) DO NOTHING",
+                [
+                    (namespace, node["node_id"],
+                     node.get("node_type", "EVENT"), json.dumps(node))
+                    for node in nodes
+                ],
+            )
 
-            if links:
-                with conn.cursor() as cur:
-                    cur.executemany(
-                        "INSERT INTO memory_links "
-                        "(namespace_id, link_id, source_id, target_id, "
-                        " link_type, link) "
-                        "VALUES (%s, %s, %s, %s, %s, %s::jsonb) "
-                        "ON CONFLICT (namespace_id, link_id) DO NOTHING",
-                        [
-                            (namespace, link["link_id"],
-                             link["source_node_id"], link["target_node_id"],
-                             link.get("link_type", "TEMPORAL"), json.dumps(link))
-                            for link in links
-                        ],
-                    )
+            _insert_many(
+                conn,
+                "INSERT INTO memory_links "
+                "(namespace_id, link_id, source_id, target_id, "
+                " link_type, link) "
+                "VALUES (%s, %s, %s, %s, %s, %s::jsonb) "
+                "ON CONFLICT (namespace_id, link_id) DO NOTHING",
+                [
+                    (namespace, link["link_id"],
+                     link["source_node_id"], link["target_node_id"],
+                     link.get("link_type", "TEMPORAL"), json.dumps(link))
+                    for link in links
+                ],
+            )
 
-            if vectors:
-                with conn.cursor() as cur:
-                    cur.executemany(
-                        "INSERT INTO memory_vectors "
-                        "(namespace_id, vector_id, embedding, payload) "
-                        "VALUES (%s, %s, %s::halfvec, %s::jsonb) "
-                        "ON CONFLICT (namespace_id, vector_id) DO NOTHING",
-                        [
-                            (namespace, vector_id, vector, json.dumps(payload))
-                            for vector_id, vector, payload in vectors
-                        ],
-                    )
+            _insert_many(
+                conn,
+                "INSERT INTO memory_vectors "
+                "(namespace_id, vector_id, embedding, payload) "
+                "VALUES (%s, %s, %s::halfvec, %s::jsonb) "
+                "ON CONFLICT (namespace_id, vector_id) DO NOTHING",
+                [
+                    (namespace, vector_id, vector, json.dumps(payload))
+                    for vector_id, vector, payload in vectors
+                ],
+            )
 
-            if keywords:
-                with conn.cursor() as cur:
-                    cur.executemany(
-                        "INSERT INTO memory_keywords (namespace_id, term, node_id) "
-                        "VALUES (%s, %s, %s) "
-                        "ON CONFLICT (namespace_id, term, node_id) DO NOTHING",
-                        [(namespace, term, node_id) for term, node_id in keywords],
-                    )
+            _insert_many(
+                conn,
+                "INSERT INTO memory_keywords (namespace_id, term, node_id) "
+                "VALUES (%s, %s, %s) "
+                "ON CONFLICT (namespace_id, term, node_id) DO NOTHING",
+                [(namespace, term, node_id) for term, node_id in keywords],
+            )
 
             conn.execute(
                 "UPDATE memory_namespaces "
