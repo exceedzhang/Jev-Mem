@@ -72,11 +72,13 @@ def _call(op) -> str:
 
 def _answer_synthesis(result_mode) -> bool:
     """Map the ``result_mode`` tool parameter to the sidecar's answer flag."""
-    mode = str(result_mode if result_mode is not None else "answer").strip().lower()
+    mode = "" if result_mode is None else str(result_mode).strip().lower()
+    if not mode:
+        return True
     if mode not in RESULT_MODES:
         raise ValueError(
-            "result_mode must be one of "
-            f"{', '.join(RESULT_MODES)}; got {result_mode!r}"
+            f"Parameter 'result_mode' must be one of {', '.join(RESULT_MODES)}; "
+            f"got {result_mode!r}"
         )
     return mode == "answer"
 
