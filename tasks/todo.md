@@ -274,6 +274,12 @@ created from the source, Chinese narrative intact; `--force` re-run kept the
 same counts. Suite: 24 passed in tests/test_pg_storage.py with DSN; full suite
 240 passed + 25 skipped without DSN.
 
+Post-review fix (2026-11-10): row-count verification moved INSIDE the
+transaction (a mismatch, e.g. a duplicate node_id deduped by ON CONFLICT, now
+rolls back instead of leaving partial data committed — regression test added);
+malformed source JSON and a non-integer JEV_MEM_PG_VECTOR_DIM now report a
+clean MigrationError instead of a traceback. 26 passed with DSN.
+
 ### Task 10: e2e `JevMemSystem` on Postgres
 
 **Description:** PG-gated end-to-end test: full `JevMemSystem` with

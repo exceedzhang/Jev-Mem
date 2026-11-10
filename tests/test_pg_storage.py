@@ -518,6 +518,34 @@ def test_pg_migrate_empty_namespace_no_force_needed(dsn, dim, tmp_path):
     with pg_common.connection(dsn) as conn:
         conn.execute("DELETE FROM memory_namespaces WHERE id = %s", (namespace,))
 
+
+def test_pg_migrate_duplicate_node_id_rolls_back(dsn, dim, tmp_path):
+    """A row-count mismatch (duplicate node_id deduped by ON CONFLICT) must
+    roll back the whole transaction, not leave partial data committed."""
+    import json as _json
+
+    mig = _migration_module()
+    ns, *_ = _build_file_layout(tmp_path, dim)
+    graph = _json.loads((ns / "graph.json").read_text())
+    graph["nodes"].append(dict(graph["nodes"][0]))
+    (ns / "graph.json").write_text(_json.dumps(graph))
+
+    namespace = f"{ns.name}-dup"
+    with pg_common.connection(dsn) as conn:
+        conn.execute("DELETE FROM memory_namespaces WHERE id = %s", (namespace,))
+    with pytest.raises(mig.MigrationError, match="row-count verification"):
+        mig.migrate_namespace(dsn, namespace, ns, dimension=dim)
+
+    counts = _pg_counts(dsn, namespace)
+    assert counts == {
+        "memory_nodes": 0,
+        "memory_links": 0,
+        "memory_vectors": 0,
+        "memory_keywords": 0,
+    }
+    with pg_common.connection(dsn) as conn:
+        conn.execute("DELETE FROM memory_namespaces WHERE id = %s", (namespace,))
+
 # --- end-to-end system on Postgres (Task 10)
 
 

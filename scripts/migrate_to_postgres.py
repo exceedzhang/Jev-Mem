@@ -184,12 +184,16 @@ def migrate_namespace(pg_dsn: str, namespace: str, directory, dimension: int,
     if not namespace:
         raise MigrationError("namespace must be a non-empty name")
 
-    nodes, links = _load_graph(directory)
-    vectors = _load_vectors(directory)
-    keywords = _load_keywords(directory)
-    config = _read_json(directory / "jev_mem_config.json", {})
-
-    dim = _vector_dimension(directory, dimension)
+    try:
+        nodes, links = _load_graph(directory)
+        vectors = _load_vectors(directory)
+        keywords = _load_keywords(directory)
+        config = _read_json(directory / "jev_mem_config.json", {})
+        dim = _vector_dimension(directory, dimension)
+    except (KeyError, TypeError, ValueError) as exc:
+        # Malformed source JSON (missing node_id, bad vector, ...): report the
+        # directory and exit cleanly instead of a bare traceback.
+        raise MigrationError(f"cannot read {directory}: {exc}") from exc
     pg_common.create_schema(pg_dsn, dim)
 
     with pg_common.connection(pg_dsn) as conn:
@@ -275,25 +279,28 @@ def migrate_namespace(pg_dsn: str, namespace: str, directory, dimension: int,
 
             final = _db_row_counts(conn, namespace)
 
-    expected = {
-        "nodes": len(nodes),
-        "links": len(links),
-        "vectors": len(vectors),
-        "keywords": len(keywords),
-    }
-    mismatched = {
-        key: (final[key], count)
-        for key, count in expected.items()
-        if final[key] != count
-    }
-    if mismatched:
-        raise MigrationError(
-            f"row-count verification failed for {namespace!r}: "
-            + ", ".join(
-                f"{key} in DB={db} expected={file}"
-                for key, (db, file) in mismatched.items()
-            )
-        )
+            expected = {
+                "nodes": len(nodes),
+                "links": len(links),
+                "vectors": len(vectors),
+                "keywords": len(keywords),
+            }
+            mismatched = {
+                key: (final[key], count)
+                for key, count in expected.items()
+                if final[key] != count
+            }
+            if mismatched:
+                # Raising inside the transaction rolls everything back: a
+                # count mismatch (e.g. a duplicate node_id in the source)
+                # must never leave partial data committed.
+                raise MigrationError(
+                    f"row-count verification failed for {namespace!r}: "
+                    + ", ".join(
+                        f"{key} in DB={db} expected={file}"
+                        for key, (db, file) in mismatched.items()
+                    )
+                )
 
     return MigrationReport(
         namespace=namespace,
@@ -305,6 +312,19 @@ def migrate_namespace(pg_dsn: str, namespace: str, directory, dimension: int,
     )
 
 
+def _default_dimension() -> int:
+    """JEV_MEM_PG_VECTOR_DIM with a clean error instead of a bare ValueError."""
+    raw = os.getenv("JEV_MEM_PG_VECTOR_DIM", "").strip()
+    if not raw:
+        return _DEFAULT_DIM
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise MigrationError(
+            f"JEV_MEM_PG_VECTOR_DIM must be an integer (got {raw!r})"
+        ) from exc
+
+
 def _parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="Migrate a Jev-Mem file layout into PostgreSQL.")
@@ -313,7 +333,7 @@ def _parse_args(argv=None):
     parser.add_argument("--dsn", default=os.getenv("JEV_MEM_PG_DSN", "").strip(),
                         help="PostgreSQL DSN (default: JEV_MEM_PG_DSN)")
     parser.add_argument("--dim", type=int,
-                        default=int(os.getenv("JEV_MEM_PG_VECTOR_DIM", _DEFAULT_DIM)),
+                        default=_default_dimension(),
                         help="vector dimension when the layout has none "
                              "(default: JEV_MEM_PG_VECTOR_DIM or 2560)")
     parser.add_argument("--namespace", action="append", default=None,
@@ -324,8 +344,8 @@ def _parse_args(argv=None):
 
 
 def main(argv=None) -> int:
-    args = _parse_args(argv)
     try:
+        args = _parse_args(argv)
         dsn = pg_common.resolve_dsn(args.dsn)
         source = Path(args.source)
         if not source.is_dir():
