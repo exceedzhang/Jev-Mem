@@ -156,6 +156,10 @@ class NamespaceRegistry:
                         evicted.save_memory()
                     except Exception:
                         logger.exception("failed to save evicted namespace %s", evicted_name)
+                    try:
+                        evicted.memory_builder.stop_worker()
+                    except Exception:
+                        logger.exception("failed to stop consolidation worker for %s", evicted_name)
                     logger.info("evicted namespace %s (limit %d)", evicted_name, MAX_NAMESPACES)
                 self._register_in_db(namespace)
                 system = self._create(namespace)

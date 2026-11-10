@@ -1114,3 +1114,52 @@ def test_evidence_sort_order_time_and_similarity(tmp_path):
         assert marker in evidence_sim
     with pytest.raises(ValueError):
         system.query_engine.query("Which workouts did I complete?", top_k=5, sort="bogus")
+
+
+def test_take_pending_consolidation_returns_queued_id(tmp_path):
+    """A write at the interval threshold enqueues the id; take pops it exactly once."""
+    config = JevMemConfig(write_enabled=True, read_enabled=True, jev_mock=True, consolidation_interval=1)
+    builder = make_builder(tmp_path, config)
+    try:
+        node = builder.build("A single observation about the sea", datetime(2026, 1, 1),
+                             {"entities": ["place:sea"], "source": "test"})
+        assert builder.take_pending_consolidation() == node.node_id
+        assert builder.take_pending_consolidation() is None
+    finally:
+        builder.stop_worker()
+
+
+def test_build_runs_consolidation_on_the_background_worker(tmp_path):
+    """The write itself never blocks on consolidation; the worker does it afterwards."""
+    config = JevMemConfig(write_enabled=True, read_enabled=True, jev_mock=True, consolidation_interval=2)
+    builder = make_builder(tmp_path, config)
+    runs = []
+    original = builder.consolidate
+
+    def recording_consolidate(memory_id, summarizer=None):
+        runs.append(memory_id)
+        return original(memory_id, summarizer)
+
+    builder.consolidate = recording_consolidate
+    try:
+        builder.build("First note about the harbour", datetime(2026, 1, 1),
+                      {"entities": ["place:harbour"], "source": "test"})
+        assert runs == []
+        second = builder.build("Second note about the harbour", datetime(2026, 1, 2),
+                               {"entities": ["place:harbour"], "source": "test"})
+        assert runs == []  # the write path returns before any consolidation runs
+        deadline = time.time() + 10
+        while time.time() < deadline and not runs:
+            time.sleep(0.1)
+        assert runs == [second.node_id]
+    finally:
+        builder.stop_worker()
+
+
+def test_worker_stays_asleep_when_the_interval_is_off(tmp_path):
+    config = JevMemConfig(write_enabled=True, read_enabled=True, jev_mock=True, consolidation_interval=0)
+    builder = make_builder(tmp_path, config)
+    builder.build("An observation without periodic consolidation", datetime(2026, 1, 1),
+                  {"entities": ["place:field"], "source": "test"})
+    assert builder.take_pending_consolidation() is None
+    assert builder._worker is None

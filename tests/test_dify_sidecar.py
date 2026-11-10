@@ -292,3 +292,24 @@ def test_make_summarizer_raises_on_empty_completion(monkeypatch, tmp_path):
     summarize = app_module._make_summarizer(_System())
     with pytest.raises(RuntimeError, match="empty"):
         summarize(["a", "b"])
+
+
+def test_registry_eviction_stops_the_consolidation_worker(tmp_path, monkeypatch):
+    """An evicted namespace's background consolidation worker is stopped."""
+    _prep_env(monkeypatch, mock="1")
+    app_module = _load_sidecar(monkeypatch, "sidecar_evict_app", _stage_service(tmp_path), tmp_path)
+    monkeypatch.setattr(app_module, "PROFILE_PATH",
+                        str(Path(__file__).resolve().parents[1] / "config" / "jev_mem.json"))
+    monkeypatch.setattr(app_module, "MAX_NAMESPACES", 2)
+    registry = app_module.NamespaceRegistry()
+    first = registry.get("ns-a")
+    first.memory_builder._ensure_worker()
+    worker = first.memory_builder._worker
+    assert worker is not None and worker.is_alive()
+    try:
+        registry.get("ns-b")
+        registry.get("ns-c")  # evicts ns-a
+    finally:
+        first.memory_builder.stop_worker()
+    assert first.memory_builder._worker is None
+    assert not worker.is_alive()

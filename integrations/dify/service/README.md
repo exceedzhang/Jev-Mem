@@ -124,7 +124,7 @@ docker run -d --name jev-mem \
 | `JEV_MEM_EMBEDDING_MODEL` | 自动 | 显式指定向量后端:`openai`(API)或 `minilm`(本地 sentence-transformers);未设置时 = 设置了 `OPENAI_EMBEDDING_MODEL` 则走 API,否则本地 minilm |
 | `JEV_MEM_PORT` | `8700` | 监听端口 |
 | `JEV_MEM_MAX_NAMESPACES` | `8` | 同时驻留的 namespace 数(LRU 驱逐前自动保存) |
-| `JEV_MEM_CONSOLIDATION_INTERVAL` | `20`(profile 默认) | 每 N 次成功写入触发一次 consolidation;`0` = 关闭 |
+| `JEV_MEM_CONSOLIDATION_INTERVAL` | `20`(profile 默认) | 每 N 次成功写入触发一次 consolidation;`0` = 关闭。巩固在后台 worker 线程执行,不阻塞写入请求;命名空间被 LRU 淘汰时 worker 停止 |
 | `JEV_MEM_AUDIT_PATH` | 未设置 | 设置后 Jev 决策/consolidation 审计事件以 JSONL 追加写入该文件;未设置 = 仅日志 |
 | `JEV_MEM_STORAGE` | `file`(库默认;容器 `.env` 默认 `postgres`) | 存储后端:`file`(文件布局)或 `postgres`(见 `docs/postgresql_storage.md`) |
 | `JEV_MEM_PG_DSN` | 未设置 | `JEV_MEM_STORAGE=postgres` 时必填,未设置则启动即失败 |

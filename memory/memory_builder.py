@@ -10,6 +10,7 @@ Handles memory construction from conversation data, including:
 
 import json
 import logging
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
@@ -29,6 +30,8 @@ class MemoryBuilder:
 
     Supports both turn-based and episode-based memory construction.
     """
+
+    _WORKER_POLL_SECONDS = 5.0
 
     def __init__(
         self,
@@ -70,6 +73,14 @@ class MemoryBuilder:
         # The Dify sidecar sets it from its LLM controller; when absent the
         # consolidation stays decision-only (links recorded, no summary node).
         self.summarizer = None
+        # Periodic consolidation runs off the write path: a write that crosses
+        # the interval only queues its id, and a daemon worker drains the queue.
+        # The re-entrant lock serialises the write-side graph mutation against
+        # a consolidation running on the worker thread.
+        self._lock = threading.RLock()
+        self._pending_consolidation: Optional[str] = None
+        self._worker: Optional[threading.Thread] = None
+        self._worker_stop = threading.Event()
         if use_episodes and self.jev_config.write_enabled:
             raise ValueError("Jev-Mem writes use one canonical node per observation; disable --use-episodes")
 
@@ -182,18 +193,23 @@ class MemoryBuilder:
         relations = self.write_policy.relations(node, candidates)
         if relations is None:
             return self._build_magma(interaction, timestamp, metadata, fallback=True)
-        temporal_count = self._store_jev_node(node, relations)
-        self.index_event(node.node_id, interaction, node.attributes)
-        self._jev_writes += 1
+        with self._lock:
+            temporal_count = self._store_jev_node(node, relations)
+            self.index_event(node.node_id, interaction, node.attributes)
+            self._jev_writes += 1
+            interval = self.jev_config.consolidation_interval
+            due = bool(interval) and not self._consolidating and self._jev_writes % interval == 0
+            if due:
+                self._pending_consolidation = node.node_id
         relation_counts = Counter(link.link_type.value.lower() for link in relations)
         relation_counts["temporal"] += temporal_count
         self.jev.audit.emit("memory_constructed", memory_id=node.node_id, admission=admission_data,
                             admission_enabled=self.jev_config.admission_enabled,
                             memory_type=asdict(memory_type), admission_score=score,
                             temporal_controller="magma", relations_created=dict(relation_counts))
-        interval = self.jev_config.consolidation_interval
-        if interval and not self._consolidating and self._jev_writes % interval == 0:
-            self.consolidate(node.node_id, summarizer=self.summarizer)
+        if due:
+            # Deferred on purpose: the ingest request must not wait for Jev.
+            self._ensure_worker()
         return node
 
     def _store_jev_node(self, node, relations):
@@ -241,6 +257,45 @@ class MemoryBuilder:
         A supplied System-Two summarizer receives source texts only after Jev
         approves a merge/promotion. Without it, decisions and links are persisted.
         """
+        with self._lock:
+            return self._consolidate(memory_id, summarizer)
+
+    def take_pending_consolidation(self) -> Optional[str]:
+        """Pop the queued memory id; the background worker drains it."""
+        with self._lock:
+            memory_id, self._pending_consolidation = self._pending_consolidation, None
+        return memory_id
+
+    def _ensure_worker(self) -> None:
+        """Start the daemon consolidation worker on its first trigger."""
+        with self._lock:
+            if self._worker is not None and self._worker.is_alive():
+                return
+            stop = threading.Event()
+            self._worker_stop = stop
+            self._worker = threading.Thread(target=self._worker_loop, args=(stop,),
+                                            name="jev-mem-consolidation", daemon=True)
+            self._worker.start()
+
+    def _worker_loop(self, stop: threading.Event) -> None:
+        while not stop.wait(self._WORKER_POLL_SECONDS):
+            memory_id = self.take_pending_consolidation()
+            if memory_id is None:
+                continue
+            try:
+                self.consolidate(memory_id, summarizer=self.summarizer)
+            except Exception:  # a single bad run must not kill the worker
+                logger.exception("background consolidation failed for %s", memory_id)
+
+    def stop_worker(self, timeout: float = 10.0) -> None:
+        """Stop the background worker (namespace eviction or shutdown)."""
+        self._worker_stop.set()
+        with self._lock:
+            worker, self._worker = self._worker, None
+        if worker is not None and worker.is_alive():
+            worker.join(timeout)
+
+    def _consolidate(self, memory_id, summarizer=None):
         from .jev_mem_policies import find_candidates, node_state
         import hashlib
         node = self.trg.graph_db.get_node(memory_id)
