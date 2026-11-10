@@ -7,6 +7,7 @@ a live database, using a throwaway namespace per test.
 """
 
 import os
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -19,14 +20,14 @@ from memory.pg_vector_store import PgVectorStore
 _DSN = os.getenv("JEV_MEM_PG_DSN", "").strip()
 _DEFAULT_DIM = 16  # used when the test database has no schema yet
 
-pytestmark = pytest.mark.skipif(
-    not _DSN, reason="JEV_MEM_PG_DSN not set (PG-gated tests)"
-)
-
 
 @pytest.fixture(scope="session")
 def dsn():
-    assert _DSN, "JEV_MEM_PG_DSN is required for PG-gated tests"
+    if not _DSN:
+        # Skip (never fail) so the default suite runs without a database.
+        # Fixture-based skip propagates to every PG test; the file-mode
+        # end-to-end test below does not use this fixture and always runs.
+        pytest.skip("JEV_MEM_PG_DSN not set (PG-gated tests)")
     return _DSN
 
 
@@ -372,3 +373,146 @@ def test_pg_graph_load_bumps_last_used(dsn, gstore):
             "SELECT last_used_at FROM memory_namespaces WHERE id = %s", (namespace,)
         ).fetchone()[0]
     assert after > before, "a namespace load must bump last_usedAt"
+
+
+# --- migration script (Task 9) ---------------------------------------------------
+
+def _migration_module():
+    """Load scripts/migrate_to_postgres.py as a module (it is not a package).
+
+    The module is registered in sys.modules before execution: dataclasses
+    resolve string annotations through the module registry.
+    """
+    import importlib.util
+    import sys
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / "migrate_to_postgres.py"
+    spec = importlib.util.spec_from_file_location("migrate_to_postgres", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _build_file_layout(tmp_path, dimension):
+    """Write a real per-namespace file layout using the file backends."""
+    from memory.vector_db import FileVectorStore
+    from memory.graph_db import FileGraphStore, EventNode, Link, LinkType
+
+    import json
+
+    ns = tmp_path / "ns1"
+    ns.mkdir(parents=True, exist_ok=True)
+
+    graph = FileGraphStore()
+    n1 = EventNode(content_narrative="first memory",
+                   embedding_vector=[0.1] * dimension)
+    n2 = EventNode(content_narrative="second memory",
+                   embedding_vector=[0.2] * dimension)
+    graph.add_node(n1)
+    graph.add_node(n2)
+    link = Link(source_node_id=n1.node_id, target_node_id=n2.node_id,
+                link_type=LinkType.CAUSAL, properties={"sub_type": "LEADS_TO"})
+    graph.add_link(link)
+    graph.export_to_json(str(ns / "graph.json"))
+
+    vecdb = FileVectorStore(dimension=dimension, index_type="flat")
+    vecdb.add_vector(n1.node_id, np.full(dimension, 0.1, np.float32),
+                     {"memory_type": "semantic"})
+    vecdb.add_vector(n2.node_id, np.full(dimension, 0.2, np.float32),
+                     {"memory_type": "episodic"})
+    vecdb.save(str(ns / "vectors"))
+
+    with open(ns / "keyword_index.json", "w") as f:
+        json.dump({"first": [n1.node_id], "memory": [n1.node_id, n2.node_id]}, f)
+    with open(ns / "jev_mem_config.json", "w") as f:
+        json.dump({"profile": "default", "decision_backend": "magma"}, f)
+
+    return ns, n1, n2, link
+
+
+def test_pg_migrate_file_layout_roundtrip(dsn, dim, tmp_path):
+    mig = _migration_module()
+    ns, n1, n2, link = _build_file_layout(tmp_path, dim)
+    namespace = ns.name
+
+    report = mig.migrate_namespace(dsn, namespace, ns, dimension=dim)
+
+    assert report.nodes == 2
+    assert report.links == 1
+    assert report.vectors == 2
+    assert report.keywords == 3  # "first"->1, "memory"->2
+    assert report.config is True
+
+    # row-level sample diff
+    with pg_common.connection(dsn) as conn:
+        node_row = conn.execute(
+            "SELECT node FROM memory_nodes WHERE namespace_id=%s AND node_id=%s",
+            (namespace, n1.node_id),
+        ).fetchone()
+        assert node_row[0]["content_narrative"] == "first memory"
+        assert node_row[0]["node_type"] == "EVENT"
+
+        link_row = conn.execute(
+            "SELECT link FROM memory_links WHERE namespace_id=%s", (namespace,)
+        ).fetchone()
+        assert link_row[0]["link_type"] == "CAUSAL"
+        assert link_row[0]["properties"]["sub_type"] == "LEADS_TO"
+
+        vec_row = conn.execute(
+            "SELECT embedding::text, payload FROM memory_vectors "
+            "WHERE namespace_id=%s AND vector_id=%s", (namespace, n1.node_id)
+        ).fetchone()
+        assert vec_row[1] == {"memory_type": "semantic"}
+
+        kw = conn.execute(
+            "SELECT count(*) FROM memory_keywords WHERE namespace_id=%s", (namespace,)
+        ).fetchone()[0]
+        assert kw == 3
+
+    with pg_common.connection(dsn) as conn:
+        conn.execute("DELETE FROM memory_namespaces WHERE id = %s", (namespace,))
+
+
+def test_pg_migrate_refuses_nonempty_without_force(dsn, dim, tmp_path):
+    mig = _migration_module()
+    ns, *_ = _build_file_layout(tmp_path, dim)
+    namespace = ns.name
+    mig.migrate_namespace(dsn, namespace, ns, dimension=dim)
+    try:
+        with pytest.raises(RuntimeError, match="--force"):
+            mig.migrate_namespace(dsn, namespace, ns, dimension=dim)
+    finally:
+        with pg_common.connection(dsn) as conn:
+            conn.execute("DELETE FROM memory_namespaces WHERE id = %s", (namespace,))
+
+
+def test_pg_migrate_force_overwrites(dsn, dim, tmp_path):
+    mig = _migration_module()
+    ns, *_ = _build_file_layout(tmp_path, dim)
+    namespace = ns.name
+    mig.migrate_namespace(dsn, namespace, ns, dimension=dim)
+    report2 = mig.migrate_namespace(dsn, namespace, ns, dimension=dim, force=True)
+    # idempotent overwrite: still exactly the source row counts
+    assert report2.nodes == 2 and report2.links == 1 and report2.vectors == 2
+    with pg_common.connection(dsn) as conn:
+        conn.execute("DELETE FROM memory_namespaces WHERE id = %s", (namespace,))
+
+
+def test_pg_migrate_discover_namespaces(dsn, dim, tmp_path):
+    mig = _migration_module()
+    ns, *_ = _build_file_layout(tmp_path, dim)
+    assert mig.discover_namespaces(tmp_path) == {"ns1": ns}
+    assert mig.discover_namespaces(ns) == {"ns1": ns}, "single namespace dir"
+
+
+def test_pg_migrate_empty_namespace_no_force_needed(dsn, dim, tmp_path):
+    mig = _migration_module()
+    ns, *_ = _build_file_layout(tmp_path, dim)
+    namespace = f"{ns.name}-fresh"
+    # fresh (absent) namespace needs no --force
+    report = mig.migrate_namespace(dsn, namespace, ns, dimension=dim)
+    assert report.nodes == 2
+    with pg_common.connection(dsn) as conn:
+        conn.execute("DELETE FROM memory_namespaces WHERE id = %s", (namespace,))
+
