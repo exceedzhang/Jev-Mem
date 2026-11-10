@@ -65,13 +65,15 @@ table dimension disagrees with the resolved embedding dimension), and the
 `halfvec` cast helper.
 
 **Acceptance criteria:**
-- [ ] `psycopg` added to `requirements.txt`
-- [ ] DDL executes cleanly on a stock `pgvector/pgvector:pg18` instance
-- [ ] Dimension mismatch raises a clear error before any data is written
+- [x] `psycopg` added to `requirements.txt`
+- [x] DDL executes cleanly on a stock `pgvector/pgvector:pg18` instance
+- [x] Dimension mismatch raises a clear error before any data is written
 
 **Verification:**
-- [ ] Unit: DDL string sanity + config wiring (no PG)
-- [ ] PG-gated smoke: connect + `initialize()` creates all 5 tables
+- [x] Unit: DDL string sanity + config wiring (no PG)
+- [x] PG-gated smoke: connect + `initialize()` creates all 5 tables
+      (docker jev-mem-pg, pgvector 0.8.7, `halfvec(1024)` confirmed,
+      idempotent second call)
 
 **Dependencies:** Task 1
 **Files:** `memory/pg_common.py` (new), `requirements.txt`, `tests/test_pg_storage.py` (new)
@@ -86,12 +88,21 @@ index), add/update/delete with `ON CONFLICT`, `size()`, `clear()`. `load()` /
 (`JEV_MEM_STORAGE=postgres`) at the factory site used by `JevMemSystem`.
 
 **Acceptance criteria:**
-- [ ] All protocol methods work against a live `pgvector/pgvector:pg18`
-- [ ] `storage=file` never imports psycopg at runtime (lazy import)
+- [x] All protocol methods work against a live `pgvector/pgvector:pg18`
+- [x] `storage=file` never imports psycopg at runtime (lazy import)
 
 **Verification:**
-- [ ] PG-gated unit tests for add/search/delete/size
-- [ ] `.venv/bin/python -m pytest -q` (file-mode suite still green)
+- [x] PG-gated unit tests for add/search/delete/size
+- [x] `.venv/bin/python -m pytest -q` (file-mode suite still green)
+
+**Done (2026-11-09):** `PgVectorStore` in `memory/pg_vector_store.py` (exact L2
+`<->` search with namespace filter, `ON CONFLICT` upserts, namespace-scoped
+delete/clear, `save`/`load` no-ops). Wiring: `create_vector_db(backend="postgres")`
+in `vector_db.py` (lazy import), `trg_memory.py` selects `PgVectorStore` when
+`jev_config.storage == "postgres"`, `memory_builder.py` passes `jev_config`
+down, `jev_mem_config.py` gained `namespace` (env `JEV_MEM_NAMESPACE`).
+5 PG-gated tests pass with DSN (halfvec float16 tolerance 2e-3); file-mode
+suite: 239 passed, 5 skipped.
 
 **Dependencies:** Task 2, Task 3
 **Files:** `memory/pg_vector_store.py` (new), `memory/vector_db.py` or `jev_mem/system.py` (factory), `tests/test_pg_storage.py`
@@ -104,18 +115,25 @@ index), add/update/delete with `ON CONFLICT`, `size()`, `clear()`. `load()` /
 1e-3 relative tolerance (fp16 vs fp32), and metadata round-trip.
 
 **Acceptance criteria:**
-- [ ] Parity test inserts the same vectors into both backends and compares top-k ids + distances
-- [ ] Test skips (not fails) when `JEV_MEM_PG_DSN` is unset
+- [x] Parity test inserts the same vectors into both backends and compares top-k ids + distances
+- [x] Test skips (not fails) when `JEV_MEM_PG_DSN` is unset
 
 **Verification:**
-- [ ] `docker run -d --name jev-mem-pg -e POSTGRES_PASSWORD=postgres -p 15432:5432 pgvector/pgvector:pg18` then run with `JEV_MEM_PG_DSN=postgresql://postgres:postgres@localhost:15432/jev_mem_test`
+- [x] `docker run -d --name jev-mem-pg -e POSTGRES_PASSWORD=postgres -p 15432:5432 pgvector/pgvector:pg18` then run with `JEV_MEM_PG_DSN=postgresql://postgres:postgres@localhost:15432/jev_mem_test`
+
+Done (2026-11-10): `test_pg_vector_parity_with_file_store` — 30 random vectors in both
+backends, identical top-10 ids, similarity scores within abs 2e-3 (halfvec fp16 vs
+FAISS flat fp32). Required a real fix in `pg_vector_store.py`: pgvector's `<->` is
+Euclidean L2 while FAISS IndexFlatL2 reports **squared** L2, so PgVectorStore now
+computes `1 / (1 + dist^2)` to match file-backend similarity exactly. Suite: 6 PG tests
+pass with DSN; full suite 239 passed + 6 skipped without DSN.
 
 **Dependencies:** Task 4
-**Files:** `tests/test_pg_storage.py`
+**Files:** `tests/test_pg_storage.py`, `memory/pg_vector_store.py`
 **Scope:** S
 
 ### Checkpoint: Phase 1
-- [ ] Parity tests pass against `pgvector/pgvector:pg18`
+- [x] Parity tests pass against `pgvector/pgvector:pg18`
 - [ ] File mode fully unaffected; review with human before proceeding
 
 ## Phase 2: graph, keyword, namespace, migration
@@ -130,16 +148,28 @@ index), add/update/delete with `ON CONFLICT`, `size()`, `clear()`. `load()` /
 `node_type` dispatch (as `import_from_json` does today).
 
 **Acceptance criteria:**
-- [ ] Round-trip: upsert node/link → delete in-memory cache → load → identical object model
-- [ ] Two connections: a mutation on A invalidates B's cache (version check)
-- [ ] jsonb payload is the only thing read back into the object model
+- [x] Round-trip: upsert node/link → delete in-memory cache → load → identical object model
+- [x] Two connections: a mutation on A invalidates B's cache (version check)
+- [x] jsonb payload is the only thing read back into the object model
 
 **Verification:**
-- [ ] PG-gated tests (round-trip, invalidation, cascade delete)
+- [x] PG-gated tests (round-trip, invalidation, cascade delete)
 
 **Dependencies:** Task 2, Task 3
-**Files:** `memory/pg_table_graph_store.py` (new), `tests/test_pg_storage.py`
+**Files:** `memory/pg_table_graph_store.py` (new), `memory/pg_common.py`, `tests/test_pg_storage.py`
 **Scope:** M
+
+Done (2026-11-10): `PGTableGraphStorage(GraphStore)` in memory/pg_table_graph_store.py
+— full protocol (add_node/add_link/get_node/get_link/get_neighbors/update_node/
+update_link/delete_node/delete_link/traverse/find_path/get_subgraph/
+delete_namespace), write-through to memory_nodes/memory_links with jsonb canonical
+payload + scalar denormalization, `graph_updated_at` version check + TTL invalidation
+(check_interval throttle). Internal cache is a FileGraphStore (NetworkX) so retrieval
+latency is unchanged; node dicts deserialize via the node_type dispatch (EPISODE/
+SESSION/else EVENT). pg_common.py: extracted `graph_ddl()` from `namespace_ddl()`.
+6 new PG-gated tests (round-trip, write-through, cross-process invalidation,
+update, delete cascades); 12/12 pass with DSN, full suite 239 passed + 12 skipped
+without DSN. Exported in memory/__init__.py.
 
 ### Task 7: keyword posting + `memory_builder` write-path hooks
 
@@ -151,16 +181,29 @@ for links/keywords plus the paired vector delete. The keyword posting dict is
 reloaded with the graph cache.
 
 **Acceptance criteria:**
-- [ ] Keyword posting parity: PG rows == `keyword_index.json` dict for the same writes (incl. length-1 words inside bigrams)
-- [ ] Update/delete paths remove stale terms/rows
-- [ ] File-mode write path unchanged (delegation only)
+- [x] Keyword posting parity: PG rows == `keyword_index.json` dict for the same writes (incl. length-1 words inside bigrams)
+- [x] Update/delete paths remove stale terms/rows
+- [x] File-mode write path unchanged (delegation only)
 
 **Verification:**
-- [ ] PG-gated keyword parity test; full suite (file mode) green
+- [x] PG-gated keyword parity test; full suite (file mode) green
 
 **Dependencies:** Task 4, Task 6
 **Files:** `memory/memory_builder.py`, `memory/pg_table_graph_store.py` (keyword table helpers), `tests/test_pg_storage.py`
 **Scope:** M
+
+Done (2026-11-10): `PGTableGraphStorage` gained `keyword_index` (loaded with the graph
+cache in `_load_from_db`, reset in `delete_namespace`), `reload()`, and
+`index_node_terms` / `reindex_node_terms` (executemany INSERT ON CONFLICT DO NOTHING;
+reindex deletes the node's old rows first, same transaction; bumps
+`graph_updated_at` so other processes reload the posting dict with the cache).
+`MemoryBuilder`: `_index_text_basic` now also tracks per-node terms
+(`self._node_terms`); `index_event` ends with `_flush_node_terms`, which persists them
+through the store's `index_node_terms` when present (file mode: no such attribute,
+pure no-op). `load()` copies the store's `keyword_index` into `self.node_index` in PG
+mode, mirroring the file-mode keyword_index.json load. 3 new PG-gated tests
+(roundtrip incl. multi-node posting, dedup+reindex, FK cascade on node delete); 15/15
+PG tests pass with DSN; full file-mode suite 239 passed + 15 skipped.
 
 ### Task 8: namespace management
 
@@ -171,16 +214,30 @@ sidecar `NamespaceRegistry` to consult the table (not only its in-process
 dict) in postgres mode, with `last_used_at`-based eviction/recovery.
 
 **Acceptance criteria:**
-- [ ] create/list/delete work per namespace; delete cascades to all child rows
-- [ ] Sidecar on postgres mode recovers the namespace set across restarts
-- [ ] File mode: sidecar behavior unchanged
+- [x] create/list/delete work per namespace; delete cascades to all child rows
+- [x] Sidecar on postgres mode recovers the namespace set across restarts
+- [x] File mode: sidecar behavior unchanged
 
 **Verification:**
-- [ ] PG-gated tests (registry + cascade); sidecar tests green
+- [x] PG-gated tests (registry + cascade); sidecar tests green
 
 **Dependencies:** Task 6
 **Files:** `memory/pg_table_graph_store.py` (or `pg_common.py`), `integrations/dify/service/app.py`, `tests/test_dify_sidecar.py`, `tests/test_pg_storage.py`
 **Scope:** M
+
+Done (2026-11-10): `pg_common` gained `namespace_create/exists/list/delete/
+touch` (lazy `INSERT ... ON CONFLICT DO NOTHING`, list ordered by
+last_used_at DESC, FK cascades on delete). `PGTableGraphStorage._load_from_db`
+bumps `last_used_at` in the same connection. `TemporalResonanceGraphMemory`
+selects `PGTableGraphStorage` when `jev_config.storage == "postgres"` (graph_db
+wiring + vector store). Sidecar `NamespaceRegistry`: `_register_in_db` (lazy
+create on first use), `_touch` (throttled last_usedAt bump per get), and
+`names()` now merges the in-process dict with `namespace_list` in postgres
+mode (restart recovery); `_create` sets the config's namespace to the sidecar
+namespace via `dataclasses.replace` in postgres mode. New endpoint
+`GET /v1/namespaces` (authenticated). 5 new tests (4 PG-gated + 1 sidecar
+file-mode no-op + 1 PG restart-recovery, sidecar test PG-gated); full suite
+240 passed + 20 skipped without DSN, 260 passed with DSN.
 
 ### Task 9: `scripts/migrate_to_postgres.py`
 
