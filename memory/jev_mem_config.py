@@ -54,6 +54,7 @@ class JevMemConfig:
     graph_storage: str = "table"
     pg_dsn: str = ""
     pg_vector_dim: int = 2560
+    namespace: str = "default"
 
     def __post_init__(self):
         if self.decision_backend not in ("jev", "laya", "laya-mlx"):
@@ -64,6 +65,8 @@ class JevMemConfig:
             raise ValueError("graph_storage must be table or age (age is a reserved, unimplemented knob)")
         if self.storage == "postgres" and not self.pg_dsn.strip():
             raise ValueError("pg_dsn is required when storage is postgres (set JEV_MEM_PG_DSN)")
+        if not isinstance(self.namespace, str) or not self.namespace.strip():
+            raise ValueError("namespace must be a nonempty string")
         for name in ("laya_model", "laya_device"):
             if not isinstance(getattr(self, name), str) or not getattr(self, name).strip():
                 raise ValueError(name + " must be a nonempty string")
@@ -110,7 +113,8 @@ class JevMemConfig:
         for env, setting in (("TYPESAFE_BASE_URL", "jev_base_url"), ("JEV_BASE_URL", "jev_base_url"),
                              ("TYPESAFE_DEFAULT_MODEL", "jev_model"), ("JEV_MODEL", "jev_model"),
                              ("JEV_MEM_STORAGE", "storage"), ("JEV_MEM_PG_DSN", "pg_dsn"),
-                             ("JEV_MEM_GRAPH_STORAGE", "graph_storage")):
+                             ("JEV_MEM_GRAPH_STORAGE", "graph_storage"),
+                             ("JEV_MEM_NAMESPACE", "namespace")):
             if os.getenv(env):
                 values[setting] = os.environ[env]
         if os.getenv("JEV_MEM_PG_VECTOR_DIM"):

@@ -602,14 +602,17 @@ class VectorEncoder:
         return self.encode(texts)
 
 def create_vector_db(backend: str = "auto", dimension: int = 1536,
-                    persist_path: Optional[str] = None) -> VectorStore:
+                    persist_path: Optional[str] = None,
+                    dsn: str = "", namespace: str = "default") -> VectorStore:
     """
     Factory function to create appropriate vector database
 
     Args:
-        backend: "faiss", "numpy", or "auto" (auto-detect)
+        backend: "faiss", "numpy", "postgres", or "auto" (auto-detect)
         dimension: Vector dimension
-        persist_path: Path to persist the database
+        persist_path: Path to persist the database (file backends only)
+        dsn: PostgreSQL DSN (required when backend is "postgres")
+        namespace: Postgres namespace (file backends ignore it)
 
     Returns:
         VectorStore implementation
@@ -624,5 +627,8 @@ def create_vector_db(backend: str = "auto", dimension: int = 1536,
         return FileVectorStore(dimension, persist_path=persist_path)
     elif backend == "numpy":
         return NumpyVectorDB(dimension, persist_path)
+    elif backend == "postgres":
+        from .pg_vector_store import PgVectorStore
+        return PgVectorStore(dimension, dsn=dsn, namespace=namespace)
     else:
         raise ValueError(f"Unknown backend: {backend}")

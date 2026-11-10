@@ -19,6 +19,8 @@ if sys.platform == "darwin":
 _MODULES = {
     "graph_db": "GraphStore FileGraphStore EventNode Link NodeType LinkType LinkSubType LinkStatus TraversalConstraints",
     "vector_db": "VectorStore FileVectorStore NumpyVectorDB VectorEncoder VectorEntry IndexType create_vector_db",
+    "pg_vector_store": "PgVectorStore",
+    "pg_common": "resolve_dsn get_pool",
     "trg_memory": "TemporalResonanceGraphMemory EventExtractionResult QueryContext",
     "episode_segmenter": "EpisodeSegmenter Episode MessageBuffer BoundaryDetector",
     "temporal_parser": "TemporalParser", "answer_formatter": "AnswerFormatter",
@@ -54,6 +56,7 @@ __all__ = [
     'VectorEntry',
     'IndexType',
     'create_vector_db',
+    'PgVectorStore',
 
     'TemporalResonanceGraphMemory',
     'EventExtractionResult',
