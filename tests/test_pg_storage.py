@@ -9,6 +9,8 @@ a live database, using a throwaway namespace per test.
 import hashlib
 import os
 import re
+import shutil
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -44,6 +46,16 @@ def dim(dsn):
             "WHERE attrelid = 'memory_vectors'::regclass AND attname = 'embedding'"
         ).fetchone()[0]
     return int(typ.split("(")[1].rstrip(")"))
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_system_tmpdirs():
+    """Remove the per-test cache dirs the *_system helpers create via mkdtemp."""
+    yield
+    temp_base = tempfile.gettempdir()
+    for name in os.listdir(temp_base):
+        if name.startswith("jev-pg-e2e-"):
+            shutil.rmtree(os.path.join(temp_base, name), ignore_errors=True)
 
 
 @pytest.fixture()

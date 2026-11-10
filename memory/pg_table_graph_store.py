@@ -114,13 +114,13 @@ class PGTableGraphStorage(GraphStore):
         self._ensure_loaded()
         self._mem.export_to_json(filepath)
 
-    def save(self, filepath: str = None) -> None:
+    def save(self, filepath: Optional[str] = None) -> None:
         """No-op: every mutation is already committed (write-through).
 
         Call export_to_json() for an explicit graph.json snapshot.
         """
 
-    def load(self, filepath: str = None) -> None:
+    def load(self, filepath: Optional[str] = None) -> None:
         """Postgres is the source of truth; the file argument is ignored."""
         self._ensure_loaded()
 
