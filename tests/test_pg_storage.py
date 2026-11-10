@@ -6,7 +6,9 @@ pgvector/pgvector:pg18 container) the tests exercise PgVectorStore against
 a live database, using a throwaway namespace per test.
 """
 
+import hashlib
 import os
+import re
 from pathlib import Path
 
 import numpy as np
@@ -516,3 +518,102 @@ def test_pg_migrate_empty_namespace_no_force_needed(dsn, dim, tmp_path):
     with pg_common.connection(dsn) as conn:
         conn.execute("DELETE FROM memory_namespaces WHERE id = %s", (namespace,))
 
+# --- end-to-end system on Postgres (Task 10)
+
+
+class _DeterministicEncoder:
+    """Token-hash encoder sized to the test table's vector dimension."""
+
+    def __init__(self, dimension):
+        self.dimension = dimension
+
+    def encode(self, texts):
+        if isinstance(texts, str):
+            texts = [texts]
+        result = np.zeros((len(texts), self.dimension), dtype=np.float32)
+        for i, text in enumerate(texts):
+            for token in re.findall(r"\w+", text.lower()):
+                digest = hashlib.sha256(token.encode()).digest()
+                result[i, int.from_bytes(digest[:4], "big") % self.dimension] += 1
+        return result
+
+
+def _pg_system(dsn_value, dim_value, namespace):
+    """Fully offline JevMemSystem on the PG stores (mock JEV, no LLM)."""
+    import tempfile
+
+    from jev_mem.system import JevMemSystem
+    from memory.jev_mem_config import JevMemConfig
+    from memory.memory_builder import MemoryBuilder
+    from memory.trg_memory import TemporalResonanceGraphMemory
+
+    config = JevMemConfig(
+        storage="postgres", pg_dsn=dsn_value, pg_vector_dim=dim_value,
+        namespace=namespace, jev_mock=True, write_enabled=True,
+        read_enabled=True)
+    trg = TemporalResonanceGraphMemory(
+        vector_db=PgVectorStore(dim_value, dsn=dsn_value, namespace=namespace),
+        graph_db=PGTableGraphStorage(dsn=dsn_value, namespace=namespace),
+        encoder=_DeterministicEncoder(dim_value), llm_backend=None)
+    builder = MemoryBuilder(
+        tempfile.mkdtemp(prefix="jev-pg-e2e-"), jev_config=config,
+        trg_memory=trg, llm_enabled=False)
+    return JevMemSystem(cache_dir=builder.cache_dir, memory_builder=builder)
+
+
+def _pg_counts(dsn_value, namespace):
+    with pg_common.connection(dsn_value) as conn:
+        return {
+            table: conn.execute(
+                f"SELECT count(*) FROM {table} WHERE namespace_id = %s",
+                (namespace,)).fetchone()[0]
+            for table in ("memory_nodes", "memory_links",
+                          "memory_vectors", "memory_keywords")
+        }
+
+
+def test_pg_end_to_end_system(dsn, dim):
+    """ingest -> query (all intents) -> consolidate -> reload, all in PG."""
+    namespace = f"e2e-{os.getpid()}-{os.urandom(4).hex()}"
+    try:
+        system = _pg_system(dsn, dim, namespace)
+        result = system.build_memory_from_conversation([
+            "Anna booked a flight to Tokyo on March 3rd.",
+            "Anna's flight was delayed because of a storm that day.",
+        ])
+        assert result == {"admitted": 2, "rejected": 0}
+
+        counts = _pg_counts(dsn, namespace)
+        assert counts["memory_nodes"] >= 2
+        assert counts["memory_links"] >= 1
+        assert counts["memory_vectors"] >= 2
+        assert counts["memory_keywords"] >= 2
+
+        questions = [
+            "When did Anna book her flight?",   # temporal view
+            "Where did Anna fly to?",           # semantic/entity view
+            "Why was Anna's flight delayed?",   # causal view
+            "Who booked the flight to Tokyo?",  # entity view
+        ]
+        for question in questions:
+            answer = system.query(question)
+            assert isinstance(answer, str) and answer.strip()
+
+        with pg_common.connection(dsn) as conn:
+            memory_id = conn.execute(
+                "SELECT node_id FROM memory_nodes WHERE namespace_id = %s "
+                "ORDER BY node_id LIMIT 1", (namespace,)).fetchone()[0]
+        decisions = system.memory_builder.consolidate(memory_id)
+        assert isinstance(decisions, list)
+
+        # A second process (fresh instance, no cache) recovers from PG alone.
+        reloaded = _pg_system(dsn, dim, namespace)
+        reloaded.load_memory()
+        assert reloaded.query(questions[0]).strip()
+        assert _pg_counts(dsn, namespace)["memory_nodes"] == counts["memory_nodes"]
+    finally:
+        with pg_common.connection(dsn) as conn:
+            conn.execute("DELETE FROM memory_namespaces WHERE id = %s",
+                         (namespace,))
+            conn.commit()
+        pg_common.reset_pool()

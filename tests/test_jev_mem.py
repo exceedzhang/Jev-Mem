@@ -993,3 +993,39 @@ def test_historical_graph_loads_and_saves_with_current_metadata(tmp_path):
     for node in saved["nodes"]:
         assert "jev_mem" in node["attributes"]
         assert "sys1mem" not in node["attributes"]
+
+
+def test_end_to_end_memory_flow_file_mode(tmp_path):
+    """The Task 10 flow on the file backend: ingest -> query across the four
+    retrieval views -> consolidate -> save/reload, with no database involved."""
+    from main import JevMemSystem
+    from memory.vector_db import FAISS_AVAILABLE, FileVectorStore
+    if not FAISS_AVAILABLE:
+        pytest.skip("FAISS is optional")
+    builder = make_builder(tmp_path)
+    builder.trg.vector_db = FileVectorStore(builder.trg.encoder.dimension)
+    system = JevMemSystem(cache_dir=str(tmp_path), memory_builder=builder)
+    result = system.build_memory_from_conversation([
+        "Anna booked a flight to Tokyo on March 3rd.",
+        "Anna's flight was delayed because of a storm that day.",
+    ])
+    assert result == {"admitted": 2, "rejected": 0}
+    assert len(builder.trg.graph_db.nodes) >= 2
+    assert len(builder.trg.graph_db.links) >= 1
+    questions = [
+        "When did Anna book her flight?",
+        "Where did Anna fly to?",
+        "Why was Anna's flight delayed?",
+        "Who booked the flight to Tokyo?",
+    ]
+    for question in questions:
+        assert system.query(question).strip()
+    memory_id = next(iter(builder.trg.graph_db.nodes))
+    assert isinstance(builder.consolidate(memory_id), list)
+    system.save_memory()
+    restored_builder = make_builder(tmp_path)
+    restored_builder.trg.vector_db = FileVectorStore(restored_builder.trg.encoder.dimension)
+    restored = JevMemSystem(cache_dir=str(tmp_path), memory_builder=restored_builder)
+    restored.load_memory()
+    assert len(restored_builder.trg.graph_db.nodes) == len(builder.trg.graph_db.nodes)
+    assert restored.query(questions[0]).strip()

@@ -95,6 +95,25 @@ class PGTableGraphStorage(GraphStore):
     def flush(self) -> None:
         """No-op: every mutation is already committed (write-through)."""
 
+    # --- collection views (consumers iterate these directly) -----------
+
+    @property
+    def nodes(self) -> Dict[str, Any]:
+        """Live mapping from the in-memory cache (loaded on first access)."""
+        self._ensure_loaded()
+        return self._mem.nodes
+
+    @property
+    def links(self) -> Dict[str, Any]:
+        """Live mapping from the in-memory cache (loaded on first access)."""
+        self._ensure_loaded()
+        return self._mem.links
+
+    def export_to_json(self, filepath: str) -> None:
+        """Write a JSON snapshot (the file layout stays an export, not the source)."""
+        self._ensure_loaded()
+        self._mem.export_to_json(filepath)
+
     # --- cache ---------------------------------------------------------
 
     def _read_version(self) -> Any:
