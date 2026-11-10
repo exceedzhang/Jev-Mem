@@ -645,3 +645,27 @@ def test_pg_end_to_end_system(dsn, dim):
                          (namespace,))
             conn.commit()
         pg_common.reset_pool()
+
+
+# --- stale file layout next to Postgres ----------------------------------
+
+
+def test_pg_load_ignores_stale_file_layout(dsn, dim):
+    """A leftover per-namespace file layout must not break or shadow a PG load."""
+    ns = f"stale-{os.getpid()}-{os.urandom(4).hex()}"
+    try:
+        first = _pg_system(dsn, dim, ns)
+        first.build_memory_from_conversation(["Anna booked a flight to Lisbon."])
+        assert _pg_counts(dsn, ns)["memory_nodes"] >= 1
+
+        fresh = _pg_system(dsn, dim, ns)
+        cache = Path(fresh.cache_dir)
+        (cache / "graph.json").write_text("{not json")
+        (cache / "keyword_index.json").write_text('{"ghost": ["nope"]}')
+        fresh.load_memory()  # previously: AttributeError, no attribute 'load'
+
+        assert "ghost" not in fresh.memory_builder.node_index
+        assert len(fresh.graph_db.nodes) >= 1
+    finally:
+        pg_common.namespace_delete(dsn, ns)
+        pg_common.reset_pool()

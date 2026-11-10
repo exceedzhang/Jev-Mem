@@ -347,7 +347,7 @@ def stats(namespace: str = Query(default="default")):
         "events": sum(n.node_type.name == "EVENT" for n in nodes),
         "links": len(links),
         "links_by_type": by_type,
-        "vectors": len(system.vector_db.entries) if hasattr(system.vector_db, "entries") else None,
+        "vectors": system.vector_db.size(),
     }
 
 
