@@ -1,0 +1,27 @@
+identity:
+  name: get_memory_count
+  author: exceedzhang
+  label:
+    en_US: Get Memory Count
+    zh_Hans: 获取记忆数量
+description:
+  human:
+    en_US: Return how many memories are currently stored in the Jev-Mem namespace.
+    zh_Hans: 返回当前 Jev-Mem 命名空间中存储的记忆数量。
+  llm: Return the number of memories currently stored in the Jev-Mem namespace (the ingested event count). Use this to know how many observations have been ingested so far, e.g. to decide when to consolidate.
+parameters:
+  - name: response_format
+    type: string
+    required: false
+    default: both
+    label:
+      en_US: Response Format
+      zh_Hans: 返回格式
+    human_description:
+      en_US: Output format (text, json, or both)
+      zh_Hans: 输出格式：text、json 或两者都返回
+    llm_description: Output format can be text (the count as plain text), json (structured object), or both (default).
+    form: form
+extra:
+  python:
+    source: tools/get_memory_count.py

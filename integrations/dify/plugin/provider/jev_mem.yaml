@@ -55,3 +55,4 @@ tools:
   - tools/query_memory.yaml
   - tools/ingest_memory.yaml
   - tools/consolidate_memory.yaml
+  - tools/get_memory_count.yaml

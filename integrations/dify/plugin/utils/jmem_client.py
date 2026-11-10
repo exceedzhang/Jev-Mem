@@ -69,3 +69,8 @@ class JMemClient:
             "memory_id": memory_id,
             "namespace": self.namespace,
         })
+
+    def stats(self) -> dict:
+        from urllib.parse import quote
+
+        return self._request("GET", f"/v1/memory/stats?namespace={quote(self.namespace)}")
