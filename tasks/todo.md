@@ -248,15 +248,31 @@ with row-count verification and a summary report. `--source <cache_dir>`
 required; refuses to overwrite non-empty namespaces without `--force`.
 
 **Acceptance criteria:**
-- [ ] Migrating a real file layout reproduces identical row counts and data (row-level diff for a sample)
-- [ ] Re-running on a migrated namespace fails clearly without `--force`
+- [x] Migrating a real file layout reproduces identical row counts and data (row-level diff for a sample)
+- [x] Re-running on a migrated namespace fails clearly without `--force`
 
 **Verification:**
-- [ ] PG-gated round-trip test using a tmp file layout
+- [x] PG-gated round-trip test using a tmp file layout
 
 **Dependencies:** Task 4, Task 6, Task 7
 **Files:** `scripts/migrate_to_postgres.py` (new), `tests/test_pg_storage.py`
 **Scope:** M
+
+Done (2026-11-10): `scripts/migrate_to_postgres.py` — discovers namespaces
+(base dir of namespace dirs, or a single namespace dir), reads graph.json /
+vectors/metadata.json / keyword_index.json / jev_mem_config.json, imports nodes,
+links, vectors, keyword postings and the resolved config in one transaction per
+namespace, verifies DB row counts against the file counts, refuses a non-empty
+namespace without `--force` (RuntimeError mentioning `--force`, exit 1), and
+`--force` deletes the namespace (cascade) then re-imports. Dimension comes from
+metadata.json with a clear error when the existing `halfvec(N)` differs
+(`_check_existing_dimension`). 5 new PG tests (round-trip incl. row-level sample
+diff, refuse-without-force, force-overwrite, discovery, fresh-namespace).
+Real-layout check: copied `/data/docker-test` out of the jev-mem container and
+migrated it into a scratch DB — 1 node / 1 vector / 20 postings, `halfvec(2560)`
+created from the source, Chinese narrative intact; `--force` re-run kept the
+same counts. Suite: 24 passed in tests/test_pg_storage.py with DSN; full suite
+240 passed + 25 skipped without DSN.
 
 ### Task 10: e2e `JevMemSystem` on Postgres
 
@@ -266,15 +282,30 @@ ingest → query across all four retrieval views → consolidate, asserting the
 answers/citations come from Postgres-backed stores.
 
 **Acceptance criteria:**
-- [ ] Ingest stores (graph + vectors + keywords in PG); query returns generated answers; stats reflect PG rows
-- [ ] Same assertions pass in file mode (test is backend-agnostic)
+- [x] Ingest stores (graph + vectors + keywords in PG); query returns generated answers; stats reflect PG rows
+- [x] Same assertions pass in file mode (test is backend-agnostic)
 
 **Verification:**
-- [ ] Run with PG container; run without (file mode) — both green
+- [x] Run with PG container; run without (file mode) — both green
 
 **Dependencies:** Task 4, Task 6, Task 7, Task 8
-**Files:** `tests/test_pg_storage.py`
+**Files:** `tests/test_pg_storage.py`, `tests/test_jev_mem.py`, `memory/pg_table_graph_store.py`
 **Scope:** S
+
+Done (2026-11-10): `test_pg_end_to_end_system` (PG-gated, in tests/test_pg_storage.py)
+builds a fully offline `JevMemSystem` with `JEV_MEM_STORAGE=postgres` + mock mode
+(PgVectorStore + PGTableGraphStorage + a dimension-matched deterministic encoder):
+ingest 2 observations → admitted 2 / rejected 0, PG rows populated
+(nodes>=2, links>=1, vectors>=2, keywords>=2), all four retrieval-view queries
+return non-empty answers, `consolidate` returns decisions, and a second fresh
+system instance on the same namespace reloads from PG and queries again
+(durability across processes). The same flow runs in file mode via
+`test_end_to_end_memory_flow_file_mode` (tests/test_jev_mem.py, always runs,
+FileVectorStore + FileGraphStore). Found + fixed one real bug: many consumers
+access `graph_db.nodes` / `graph_db.links` instance dicts directly, so
+`PGTableGraphStorage` gained `nodes` / `links` collection-view properties
+(live cache mappings after `_ensure_loaded()`) plus `export_to_json` delegation.
+Suite: 241 passed + 26 skipped without DSN; 267 passed with DSN.
 
 ### Task 11: CI — ubuntu pgvector service container
 
@@ -284,16 +315,25 @@ answers/citations come from Postgres-backed stores.
 (PG tests skip there). Keep `scripts/check_public_release.py` green.
 
 **Acceptance criteria:**
-- [ ] GitHub ubuntu run: PG tests execute (not skipped) and pass
-- [ ] No secrets in the workflow or diff
+- [x] GitHub ubuntu run: PG tests execute (not skipped) and pass
+- [x] No secrets in the workflow or diff
 
 **Verification:**
-- [ ] `scripts/check_public_release.py`
-- [ ] CI run (push or `act`-style local check)
+- [x] `scripts/check_public_release.py`
+- [x] CI run (push or `act`-style local check)
 
 **Dependencies:** Tasks 5, 10
 **Files:** `.github/workflows/ci.yml`
 **Scope:** S
+
+Done (2026-11-10): split the single matrix job into `test-ubuntu` (with a
+`pgvector/pgvector:pg18` service on port 15432 + health check + a
+`CREATE DATABASE jev_mem_test` step + job-level `JEV_MEM_PG_DSN`) and
+`test-macos` (unchanged, PG tests skip). GitHub macOS runners do not support
+`services:`, so a matrix-level split was required. Verified locally: YAML
+parses, `check_public_release.py --tracked` clean (129 files), and all 25 PG
+tests pass against a freshly created empty database (cold-start simulation of
+the CI path).
 
 ### Checkpoint: Complete
 - [ ] All SPEC.md success criteria met
