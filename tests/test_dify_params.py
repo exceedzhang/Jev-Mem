@@ -60,3 +60,21 @@ def test_normalize_response_format_rejects_unknown_value():
         assert "response_format" in str(exc)
     else:
         raise AssertionError("expected the invalid format to be rejected")
+
+
+def test_normalize_sort_order_defaults_and_case():
+    assert params.normalize_sort_order(None) == "time"
+    assert params.normalize_sort_order("") == "time"
+    assert params.normalize_sort_order("   ") == "time"
+    assert params.normalize_sort_order("SIMILARITY") == "similarity"
+    assert params.normalize_sort_order(" Time ") == "time"
+
+
+def test_normalize_sort_order_rejects_unknown_value():
+    try:
+        params.normalize_sort_order("bogus")
+    except ValueError as exc:
+        assert "sort" in str(exc)
+        assert "bogus" in str(exc)
+    else:
+        raise AssertionError("expected the invalid sort order to be rejected")

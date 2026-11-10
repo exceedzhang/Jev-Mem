@@ -124,7 +124,11 @@ def test_query_and_consolidate_carry_namespace(recorder):
         "namespace": "team-a",
         "top_k": 5,
         "answer": True,
+        "sort": "time",
     }
+    jm.query("q", sort="similarity", answer=False)
+    assert recorder.last["body"]["sort"] == "similarity"
+    assert recorder.last["body"]["answer"] is False
     jm.consolidate("mem-1")
     assert recorder.last["url"].endswith("/v1/memory/consolidate")
     assert recorder.last["body"] == {"memory_id": "mem-1",
@@ -184,8 +188,8 @@ class _FakeMcpClient:
     def ingest(self, text, timestamp=None, source=None):
         return self._record("ingest", text, timestamp=timestamp, source=source)
 
-    def query(self, question, top_k=15, answer=True):
-        return self._record("query", question, top_k=top_k, answer=answer)
+    def query(self, question, top_k=15, answer=True, sort="time"):
+        return self._record("query", question, top_k=top_k, answer=answer, sort=sort)
 
     def consolidate(self, memory_id):
         return self._record("consolidate", memory_id)
@@ -212,20 +216,33 @@ def test_mcp_tool_record_memory(fake_client):
 def test_mcp_tool_recall_memory_defaults_top_k(fake_client):
     out = json.loads(server.recall_memory("what happened?"))
     assert fake_client.calls == [("query", ("what happened?",),
-                                  {"top_k": 15, "answer": True})]
+                                  {"top_k": 15, "answer": True, "sort": "time"})]
     assert out["name"] == "query"
 
 
 def test_mcp_tool_recall_memory_mode_memory_skips_synthesis(fake_client):
     server.recall_memory("what happened?", result_mode="memory")
     assert fake_client.calls == [("query", ("what happened?",),
-                                  {"top_k": 15, "answer": False})]
+                                  {"top_k": 15, "answer": False, "sort": "time"})]
 
 
 def test_mcp_tool_recall_memory_rejects_unknown_mode(fake_client):
     out = json.loads(server.recall_memory("x", result_mode="xml"))
     assert out["error"] == "invalid parameter"
     assert "result_mode" in out["detail"]
+    assert fake_client.calls == []
+
+
+def test_mcp_tool_recall_memory_passes_sort_order(fake_client):
+    server.recall_memory("q", sort="SIMILARITY")
+    assert fake_client.calls == [("query", ("q",),
+                                  {"top_k": 15, "answer": True, "sort": "similarity"})]
+
+
+def test_mcp_tool_recall_memory_rejects_unknown_sort(fake_client):
+    out = json.loads(server.recall_memory("q", sort="bogus"))
+    assert out["error"] == "invalid parameter"
+    assert "sort" in out["detail"]
     assert fake_client.calls == []
 
 

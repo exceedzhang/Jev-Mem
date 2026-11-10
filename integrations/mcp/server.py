@@ -32,6 +32,7 @@ from mcp.server.mcpserver import MCPServer
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8701
 RESULT_MODES = ("answer", "memory")
+SORT_ORDERS = ("time", "similarity")
 
 
 def load_server_config() -> tuple:
@@ -83,6 +84,18 @@ def _answer_synthesis(result_mode) -> bool:
     return mode == "answer"
 
 
+def _sort_order(sort) -> str:
+    """Map the ``sort`` tool parameter to the sidecar's sort option."""
+    value = "" if sort is None else str(sort).strip().lower()
+    if not value:
+        return "time"
+    if value not in SORT_ORDERS:
+        raise ValueError(
+            f"Parameter 'sort' must be one of {', '.join(SORT_ORDERS)}; got {sort!r}"
+        )
+    return value
+
+
 app = MCPServer("jev-mem")
 
 
@@ -95,15 +108,18 @@ def record_memory(text: str, timestamp: str | None = None,
 @app.tool(description=(
     "Recall from long-term memory. result_mode='answer' (default) returns a "
     "synthesized answer; result_mode='memory' returns the raw memory records "
-    "so your own model can combine them with the current context."
+    "so your own model can combine them with the current context. "
+    "sort='time' (default) orders the returned memories newest first; "
+    "sort='similarity' orders them by retrieval relevance."
 ))
 def recall_memory(question: str, top_k: int = 15,
-                  result_mode: str = "answer") -> str:
+                  result_mode: str = "answer", sort: str = "time") -> str:
     try:
         answer = _answer_synthesis(result_mode)
+        sort_order = _sort_order(sort)
     except ValueError as exc:
         return _to_json({"error": "invalid parameter", "detail": str(exc)})
-    return _call(lambda c: c.query(question, top_k=top_k, answer=answer))
+    return _call(lambda c: c.query(question, top_k=top_k, answer=answer, sort=sort_order))
 
 
 @app.tool(description="Consolidate one stored memory (merge/relate it to related memories).")

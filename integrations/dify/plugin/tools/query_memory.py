@@ -9,6 +9,7 @@ from tools.base import (
     JMemBaseTool,
     normalize_response_format,
     normalize_result_mode,
+    normalize_sort_order,
 )
 from utils.jmem_client import JMemClientError
 
@@ -34,10 +35,15 @@ class QueryMemoryTool(JMemBaseTool, Tool):
             yield self.create_text_message(str(exc))
             return
         try:
+            sort = normalize_sort_order(tool_parameters.get("sort"))
+        except JMemClientError as exc:
+            yield self.create_text_message(str(exc))
+            return
+        try:
             # ``memory`` mode skips the sidecar's answer synthesis so the raw
             # memory records come back for the caller's own model to use.
             result = self._client().query(
-                question, top_k=top_k, answer=(result_mode == "answer")
+                question, top_k=top_k, answer=(result_mode == "answer"), sort=sort
             )
         except JMemClientError as exc:
             yield self.create_text_message(f"Jev-Mem query failed: {exc}")
@@ -45,6 +51,7 @@ class QueryMemoryTool(JMemBaseTool, Tool):
         trace = result.get("trace") or {}
         payload = {
             "result_mode": result_mode,
+            "sort": sort,
             "answer": result.get("answer"),
             "evidence": result.get("evidence"),
             "generated": result.get("generated"),

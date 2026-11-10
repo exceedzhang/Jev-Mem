@@ -5,13 +5,16 @@ from utils import params as _params
 
 RESPONSE_FORMATS = _params.RESPONSE_FORMATS
 RESULT_MODES = _params.RESULT_MODES
+SORT_ORDERS = _params.SORT_ORDERS
 
 __all__ = [
     "JMemBaseTool",
     "RESPONSE_FORMATS",
     "RESULT_MODES",
+    "SORT_ORDERS",
     "normalize_response_format",
     "normalize_result_mode",
+    "normalize_sort_order",
 ]
 
 
@@ -27,6 +30,14 @@ def normalize_response_format(value: Any) -> str:
     """Validate ``response_format``; invalid values raise ``JMemClientError``."""
     try:
         return _params.normalize_response_format(value)
+    except ValueError as exc:
+        raise JMemClientError(str(exc)) from exc
+
+
+def normalize_sort_order(value: Any) -> str:
+    """Validate ``sort``; invalid values raise ``JMemClientError``."""
+    try:
+        return _params.normalize_sort_order(value)
     except ValueError as exc:
         raise JMemClientError(str(exc)) from exc
 

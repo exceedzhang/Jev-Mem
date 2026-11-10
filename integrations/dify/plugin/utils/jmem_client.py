@@ -56,12 +56,14 @@ class JMemClient:
             body["timestamp"] = timestamp
         return self._request("POST", "/v1/memory/ingest", body)
 
-    def query(self, question: str, top_k: int = 15, answer: bool = True) -> dict:
+    def query(self, question: str, top_k: int = 15, answer: bool = True,
+          sort: str = "time") -> dict:
         return self._request("POST", "/v1/memory/query", {
             "question": question,
             "namespace": self.namespace,
             "top_k": top_k,
             "answer": answer,
+            "sort": sort,
         })
 
     def consolidate(self, memory_id: str) -> dict:

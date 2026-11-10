@@ -45,6 +45,18 @@ parameters:
       zh_Hans: 返回合成后的答案，或返回原始记忆记录供你自己的模型加工
     llm_description: Set answer (default) to get the memory service synthesized answer, or memory to get the raw retrieved memory records so the agent can combine them with its own context and instructions.
     form: form
+  - name: sort
+    type: string
+    required: false
+    default: time
+    label:
+      en_US: Sort Order
+      zh_Hans: 排序方式
+    human_description:
+      en_US: How to order the returned memories (newest first by time, or best match first by similarity)
+      zh_Hans: 返回记忆的排序方式，按时间降序（默认）或按相似度降序
+    llm_description: Set time (default) to return the memories newest first, or similarity to return them ordered by retrieval relevance, most relevant first.
+    form: form
   - name: response_format
     type: string
     required: false

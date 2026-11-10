@@ -10,6 +10,7 @@ from typing import Any
 
 RESPONSE_FORMATS = ("both", "json", "text")
 RESULT_MODES = ("answer", "memory")
+SORT_ORDERS = ("time", "similarity")
 
 
 def _normalize(value: Any, default: str, allowed: tuple[str, ...], name: str) -> str:
@@ -43,3 +44,12 @@ def normalize_response_format(value: Any) -> str:
     output.
     """
     return _normalize(value, "both", RESPONSE_FORMATS, "response_format")
+
+
+def normalize_sort_order(value: Any) -> str:
+    """Validate the ``sort`` tool parameter for the memory list.
+
+    ``time`` (default) returns the memories newest-first; ``similarity``
+    returns them in retrieval-relevance order.
+    """
+    return _normalize(value, "time", SORT_ORDERS, "sort")

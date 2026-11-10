@@ -8,7 +8,7 @@
 
 | 工具 | 作用 |
 |---|---|
-| `query_memory` | 有界多跳图检索 + System-Two 答案合成,返回答案、证据与检索 trace(stopping_decision / jev_calls / nodes_visited 等);支持 `result_mode` 切换"直接回答 / 返回原始记忆" |
+| `query_memory` | 有界多跳图检索 + System-Two 答案合成,返回答案、证据与检索 trace(stopping_decision / jev_calls / nodes_visited 等);支持 `result_mode` 切换"直接回答 / 返回原始记忆",支持 `sort` 切换"按时间降序 / 按相似度降序" |
 | `ingest_memory` | 写入一条观察:Jev typing/准入 → 候选检索 → 关系判断 → 事务插入,返回 `memory_id` |
 | `consolidate_memory` | 对指定 `memory_id` 执行非破坏性巩固(冗余/矛盾/过时判断 + 子类型边) |
 | `get_memory_count` | 返回当前命名空间中的记忆数量(已写入的事件条数),可用于判断何时需要巩固 |
@@ -41,6 +41,19 @@
 - `memory` 模式下 `generated` 为 `false`,不产生 System-Two 调用,更快更省;
 - 两种模式都返回检索 trace,`json` 输出中另有 `result_mode` 字段标明本次所用模式;
 - 参数非法(非 `answer`/`memory`)时返回错误文本,不会调用 sidecar。
+
+## query_memory 排序方式(sort)
+
+`query_memory` 支持 `sort` 参数,控制返回记忆条目的顺序:
+
+| 取值 | 行为 | 适用场景 |
+|---|---|---|
+| `time`(默认) | 按事件时间**降序**返回(最新在前,无时间戳的排最后) | 需要"最近发生了什么"这类按时间线消费记忆的场景 |
+| `similarity` | 按检索相似度**降序**返回(最相关在前) | 需要"与当前问题最相关"的证据、且希望顺序稳定时 |
+
+- 排序只影响记忆条目的先后顺序,不影响检索召回集合,也不影响 `answer` 合成;
+- `json` 输出中另有 `sort` 字段标明本次所用排序;
+- 参数非法(非 `time`/`similarity`,大小写不敏感)时返回错误文本,不会调用 sidecar。
 
 ## 工作流示例
 

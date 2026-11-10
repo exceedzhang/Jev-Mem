@@ -21,7 +21,7 @@ Jev-Mem sidecar  /v1/memory/*       (file or PostgreSQL storage)
 | Tool | Sidecar endpoint | Notes |
 |---|---|---|
 | `record_memory(text, timestamp?, source?)` | `POST /v1/memory/ingest` | records one memory; returns `{stored, memory_id, ...}` |
-| `recall_memory(question, top_k=15, result_mode="answer")` | `POST /v1/memory/query` | retrieves and synthesizes an answer |
+| `recall_memory(question, top_k=15, result_mode="answer", sort="time")` | `POST /v1/memory/query` | retrieves and synthesizes an answer |
 | `consolidate_memory(memory_id)` | `POST /v1/memory/consolidate` | runs consolidation for one memory |
 | `memory_stats()` | `GET /v1/memory/stats` | node/link/vector counts for the namespace |
 
@@ -32,6 +32,10 @@ Every tool returns a single JSON string. Failures are returned as
 `answer` (default) lets the sidecar synthesize a direct answer, while `memory`
 skips synthesis and returns the raw memory records so the agent's own model can
 post-process them with its current context.
+
+It also accepts a `sort` parameter (same as the Dify plugin): `time` (default)
+orders the returned memories newest first, while `similarity` orders them by
+retrieval relevance, most relevant first.
 
 ## Run
 
