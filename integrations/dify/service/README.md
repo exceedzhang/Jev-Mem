@@ -67,24 +67,42 @@ export JEV_MODEL=              # 如 jev-latest(默认)
 
 ### Docker 容器化运行
 
+镜像内同时运行两个服务(一个容器):sidecar(8700)+ MCP 服务(8701)。
+
 ```bash
 # 构建(在仓库根目录执行)
 docker build -f integrations/dify/service/Dockerfile -t jev-mem-sidecar .
 
-# 运行:挂载真实 .env(只读)+ 记忆数据卷
+# 运行:挂载真实 .env(只读)+ 记忆数据卷,暴露两个端口
 docker run -d --name jev-mem \
   -v /path/to/repo/integrations/dify/service/.env:/app/integrations/dify/service/.env:ro \
   -v jev-mem-data:/data \
-  -p 8700:8700 jev-mem-sidecar
+  -p 8700:8700 -p 8701:8701 jev-mem-sidecar
 ```
 
 - 记忆数据落 `/data`(镜像内 `JEV_MEM_CACHE_DIR=/data` 为默认值),
   用卷持久化,容器重建不丢记忆。
+- **存储后端默认 PostgreSQL**(`.env` / `.env.example` 里
+  `JEV_MEM_STORAGE=postgres`):图 / 向量 / 关键词 / namespace 全部进同一个
+  数据库,容器里的两个进程不再共享按 namespace 拆分的文件目录。启动前需先有
+  可连接的 pgvector 实例(`JEV_MEM_PG_DSN`),连不上或维度不匹配会启动即失败;
+  想回到文件布局就设 `JEV_MEM_STORAGE=file`。
 - 容器内 `localhost` 是容器自身:访问宿主机上的模型服务须用
   `http://host.docker.internal:8000`(或把模型服务放进同一 docker
   network 后用服务名互访)。
 - `.env` 不会被打进镜像(`.dockerignore` + 选择性 COPY 双重保证),
   镜像可安全分发。
+- MCP 服务(`entrypoint.py` 启动)默认把 `JEV_MEM_MCP_BASE_URL` 设为
+  `http://127.0.0.1:8700`、`JEV_MEM_MCP_API_KEY` 复用 `JEV_MEM_API_KEY`,
+  同一份 `.env` 同时服务两个进程;`.env` 中显式写的 `JEV_MEM_MCP_*`
+  优先。对外只暴露 8701:智能体连 `http://<host>:8701/sse`。
+- 两个进程由同一 entrypoint 托管:任一退出则另一个被一起停掉,
+  `docker stop` 同时优雅关闭。
+- 只有 sidecar 进程写 `/data` 下的记忆文件,MCP 服务是纯 HTTP 瘦客户端,
+  从不直接读写磁盘——所以多个智能体同时使用 8701 是安全的。
+  但注意:对同一个 `/data` 卷运行*第二个 sidecar 实例*在 file 后端下是
+  不安全的(每个进程各自持有内存索引,并发写入是 last-writer-wins)。
+  多实例部署请改用 `JEV_MEM_STORAGE=postgres`(见 docs/postgresql_storage.md)。
 
 ## 环境变量
 
@@ -106,7 +124,7 @@ docker run -d --name jev-mem \
 | `JEV_MEM_EMBEDDING_MODEL` | 自动 | 显式指定向量后端:`openai`(API)或 `minilm`(本地 sentence-transformers);未设置时 = 设置了 `OPENAI_EMBEDDING_MODEL` 则走 API,否则本地 minilm |
 | `JEV_MEM_PORT` | `8700` | 监听端口 |
 | `JEV_MEM_MAX_NAMESPACES` | `8` | 同时驻留的 namespace 数(LRU 驱逐前自动保存) |
-| `JEV_MEM_STORAGE` | `file` | 存储后端:`file`(默认,文件布局)或 `postgres`(见 `docs/postgresql_storage.md`) |
+| `JEV_MEM_STORAGE` | `file`(库默认;容器 `.env` 默认 `postgres`) | 存储后端:`file`(文件布局)或 `postgres`(见 `docs/postgresql_storage.md`) |
 | `JEV_MEM_PG_DSN` | 未设置 | `JEV_MEM_STORAGE=postgres` 时必填,未设置则启动即失败 |
 | `JEV_MEM_PG_VECTOR_DIM` | `2560` | pgvector 列维度;必须与 embedding 模型维度一致,否则启动即失败 |
 | `JEV_MEM_GRAPH_STORAGE` | `table` | 图存储实现;`age` 为保留值,暂未实现 |

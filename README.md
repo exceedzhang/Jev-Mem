@@ -339,19 +339,34 @@ python integrations/dify/service/app.py                  # real mode, port 8700
 JEV_MEM_MOCK=1 python integrations/dify/service/app.py   # offline mock
 ```
 
-Or run it as a container. The `.env` is mounted read-only and memory data
+Or run it as a container. One image runs both services — the sidecar on 8700
+and the MCP server on 8701. The `.env` is mounted read-only and memory data
 persists in a `/data` volume — neither is ever baked into the image:
 
 ```bash
 docker build -f integrations/dify/service/Dockerfile -t jev-mem-sidecar .
 docker run -d --name jev-mem \
   -v "$(pwd)/integrations/dify/service/.env:/app/integrations/dify/service/.env:ro" \
-  -v jev-mem-data:/data -p 8700:8700 jev-mem-sidecar
+  -v jev-mem-data:/data -p 8700:8700 -p 8701:8701 jev-mem-sidecar
 ```
+
+The container entrypoint points the MCP client at `http://127.0.0.1:8700`
+and reuses `JEV_MEM_API_KEY`, so one `.env` serves both services (explicit
+`JEV_MEM_MCP_*` values win). Agents then connect to `http://<host>:8701/sse`.
 
 Inside a container, `localhost` refers to the container itself: point the model
 endpoints at `http://host.docker.internal:<port>` or place the model server on
 the same Docker network.
+
+The sidecar is the only process that writes the `/data` memory files; the MCP
+server is a thin HTTP client that never touches them, so any number of agents
+sharing the 8701 service is safe. The shipped `.env` / `.env.example` set
+`JEV_MEM_STORAGE=postgres`, so the container deployment uses **PostgreSQL by
+default** — one transactional store for graph, vectors, keywords, and
+namespaces, with no shared file layout to reason about. Set
+`JEV_MEM_STORAGE=file` to restore the per-namespace file layout (it then
+requires exactly one writer per `/data` volume; see
+[PostgreSQL storage backend](#postgresql-storage-backend) for multi-replica).
 
 ### Installing the plugin
 
@@ -484,7 +499,9 @@ flowchart LR
 
 ### Enabling it
 
-Point the sidecar (or any Python process) at Postgres with two variables:
+Point the sidecar (or any Python process) at Postgres with two variables
+(the container deployment's shipped `.env` / `.env.example` already does
+this — Postgres is the default there):
 
 ```dotenv
 JEV_MEM_STORAGE=postgres
@@ -499,7 +516,7 @@ variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `JEV_MEM_STORAGE` | `file` | Storage backend: `file` (default) or `postgres` |
+| `JEV_MEM_STORAGE` | `file` (library default; the container `.env` defaults to `postgres`) | Storage backend: `file` or `postgres` |
 | `JEV_MEM_PG_DSN` | — | Postgres connection string; required for `postgres` |
 | `JEV_MEM_PG_VECTOR_DIM` | `2560` | Vector dimension used to create the `halfvec(N)` column; must match your embedding model (a mismatch fails fast at startup) |
 | `JEV_MEM_GRAPH_STORAGE` | `table` | Graph backend inside Postgres; `table` is the supported implementation (`age` is a reserved, documented knob, not implemented) |
