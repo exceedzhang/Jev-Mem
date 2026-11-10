@@ -51,8 +51,8 @@ class JevMemSystem:
                        for content, timestamp, metadata in observations)
         return {"admitted": admitted, "rejected": len(observations) - admitted}
 
-    def query(self, question):
-        context, evidence = self.query_engine.query(question, top_k=5)
+    def query(self, question, sort: str = "time"):
+        context, evidence = self.query_engine.query(question, top_k=5, sort=sort)
         if not self.llm_controller:
             return evidence or "Information not found"
         prompt = self.answer_formatter.build_qa_prompt(evidence, question)

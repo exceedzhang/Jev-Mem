@@ -130,7 +130,7 @@ def test_retrievals_queue_before_starting_deadlines(monkeypatch, backend):
     entered, release, second_queued = Event(), Event(), Event()
     calls = []
 
-    def retrieve(question, top_k):
+    def retrieve(question, top_k, sort="time"):
         calls.append(question)
         if question == "first":
             entered.set()

@@ -10,7 +10,7 @@ import numpy as np
 from .graph_db import NodeType, LinkStatus
 from .jev_client import CallBudget
 from .jev_questions import routing_questions, stopping_questions, traversal_questions
-from .jev_mem_policies import GraphNeeds, allocate_graph_budgets, cosine, node_state, timestamp_value
+from .jev_mem_policies import GraphNeeds, allocate_graph_budgets, cosine, node_state, order_evidence_nodes, timestamp_value
 from .trg_memory import QueryContext
 
 
@@ -18,17 +18,17 @@ class RetrievalController:
     def __init__(self, engine, client, config):
         self.engine, self.client, self.config = engine, client, config
 
-    def query(self, question, top_k):
+    def query(self, question, top_k, sort="time"):
         if top_k < 1:
             raise ValueError("top_k must be positive")
         queued = time.monotonic()
         with self.client.retrieval_slot():
             queue_seconds = time.monotonic() - queued
-            context, answer_context = self._query(question, top_k)
+            context, answer_context = self._query(question, top_k, sort)
             context.metadata["retrieval_queue_seconds"] = queue_seconds
             return context, answer_context
 
-    def _query(self, question, top_k):
+    def _query(self, question, top_k, sort="time"):
         started = time.monotonic()
         cfg, trg = self.config, self.engine.trg
         budget = CallBudget(cfg.maximum_jev_calls, started + cfg.max_latency_seconds)
@@ -188,7 +188,8 @@ class RetrievalController:
         if budget.remaining_seconds() <= 0:
             stop_reason = "max_latency"
         selected = sorted(nodes, key=lambda key: (-scores[key], key))[:top_k]
-        chosen = [nodes[key] for key in selected]
+        chosen = order_evidence_nodes([nodes[key] for key in selected], sort)
+        path_by_id = {nodes[key].node_id: paths[key] for key in selected}
         metadata = {"controller": "jev-mem", "decision_backend": cfg.decision_backend, "query_id": hashlib.sha256(question.encode()).hexdigest()[:16],
                     "graph_needs": asdict(needs), "graph_budgets": allocations,
                     "graph_budget_used": used, "nodes_visited": len(nodes), "edges_examined": edges_examined,
@@ -200,7 +201,7 @@ class RetrievalController:
         if temporal_query:
             metadata["temporal_evidence_policy"] = "anchored-dialogue-v1"
         answer_context = self.engine.answer_formatter.format_context_for_qa(chosen, question)
-        context = QueryContext(question, chosen, [paths[key] for key in selected], answer_context, metadata)
+        context = QueryContext(question, chosen, [path_by_id[n.node_id] for n in chosen], answer_context, metadata)
         self.client.audit.emit("query", **metadata)
         trg.stats['queries_processed'] += 1
         return context, answer_context

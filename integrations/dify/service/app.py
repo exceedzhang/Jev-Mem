@@ -215,6 +215,7 @@ class QueryRequest(BaseModel):
     namespace: Optional[str] = None
     top_k: int = 15
     answer: bool = True
+    sort: str = "time"
 
 
 class ConsolidateRequest(BaseModel):
@@ -289,7 +290,11 @@ def query_memory(req: QueryRequest):
     system = registry.get(req.namespace or "default")
     if not req.question.strip():
         raise HTTPException(status_code=422, detail="question must be non-empty")
-    context, evidence = system.query_engine.query(req.question, top_k=req.top_k)
+    try:
+        context, evidence = system.query_engine.query(
+            req.question, top_k=req.top_k, sort=(req.sort or "time").strip().lower())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     answer = None
     if req.answer and system.llm_controller is not None:
         prompt = system.answer_formatter.build_qa_prompt(evidence, req.question)

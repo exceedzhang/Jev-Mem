@@ -45,6 +45,33 @@ def add_memories(builder, count=5):
                           {"entities": ["person:alice"], "source": "test"}) for i in range(count)]
 
 
+def test_order_evidence_nodes_time_and_similarity():
+    """The new evidence ordering helper: time desc (default, None last) and similarity desc."""
+    from memory.jev_mem_policies import order_evidence_nodes
+
+    class Node:
+        def __init__(self, timestamp=None, similarity_score=0.0):
+            self.timestamp = timestamp
+            self.similarity_score = similarity_score
+
+    jan = Node(datetime(2026, 1, 5))
+    feb = Node(datetime(2026, 2, 20))
+    mar = Node(datetime(2026, 3, 10))
+    nots = Node(None)
+    # Time order: newest first, nodes without a timestamp last.
+    assert order_evidence_nodes([jan, nots, feb, mar], "time") == [mar, feb, jan, nots]
+    # Similarity order: highest relevance first.
+    low = Node(None, 0.1)
+    high = Node(None, 0.9)
+    mid = Node(None, 0.5)
+    assert order_evidence_nodes([low, mid, high], "similarity") == [high, mid, low]
+    # ``time`` is the default.
+    assert order_evidence_nodes([jan, mar]) == [mar, jan]
+    # Unknown orders are rejected.
+    with pytest.raises(ValueError):
+        order_evidence_nodes([jan], "bogus")
+
+
 def engine_for(builder):
     return QueryEngine(builder.trg, builder.node_index, jev_config=builder.jev_config, jev_client=builder.jev)
 
@@ -1029,3 +1056,33 @@ def test_end_to_end_memory_flow_file_mode(tmp_path):
     restored.load_memory()
     assert len(restored_builder.trg.graph_db.nodes) == len(builder.trg.graph_db.nodes)
     assert restored.query(questions[0]).strip()
+
+
+def test_evidence_sort_order_time_and_similarity(tmp_path):
+    """sort=time (the default) returns evidence newest first; sort=similarity
+    keeps relevance order; unknown orders are rejected before retrieval."""
+    from main import JevMemSystem
+    builder = make_builder(tmp_path)
+    system = JevMemSystem(cache_dir=str(tmp_path), memory_builder=builder)
+    result = system.build_memory_from_conversation([
+        {"content": "I completed a morning run during my workouts this week.",
+         "timestamp": "2026-01-05T09:00:00"},
+        {"content": "I did pool laps in my workouts on Tuesday.",
+         "timestamp": "2026-02-20T18:30:00"},
+        {"content": "I finished weightlifting in my workouts last weekend.",
+         "timestamp": "2026-03-10T10:15:00"},
+    ])
+    assert result == {"admitted": 3, "rejected": 0}
+    _context, evidence = system.query_engine.query(
+        "Which workouts did I complete?", top_k=5, sort="time")
+    for marker in ("morning run", "pool laps", "weightlifting"):
+        assert marker in evidence
+    # Newest first: March before February before January.
+    assert evidence.index("weightlifting") < evidence.index("pool laps")
+    assert evidence.index("pool laps") < evidence.index("morning run")
+    _context, evidence_sim = system.query_engine.query(
+        "Which workouts did I complete?", top_k=5, sort="similarity")
+    for marker in ("morning run", "pool laps", "weightlifting"):
+        assert marker in evidence_sim
+    with pytest.raises(ValueError):
+        system.query_engine.query("Which workouts did I complete?", top_k=5, sort="bogus")

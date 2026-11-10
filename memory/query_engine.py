@@ -683,7 +683,8 @@ class QueryEngine:
 
         return nodes, session_nodes
 
-    def query(self, question: str, top_k: int = 15) -> Tuple[QueryContext, str]:
+    def query(self, question: str, top_k: int = 15,
+              sort: str = "time") -> Tuple[QueryContext, str]:
         """
         Execute multi-stage query with adaptive parameters.
 
@@ -703,7 +704,7 @@ class QueryEngine:
         """
         if self.jev_config.read_enabled:
             from .jev_mem_retrieval import RetrievalController
-            return RetrievalController(self, self.jev, self.jev_config).query(question, top_k)
+            return RetrievalController(self, self.jev, self.jev_config).query(question, top_k, sort)
         query_type = self.detect_query_type(question)
 
         if self.ablation_config.get('flat_graph'):
@@ -855,6 +856,9 @@ class QueryEngine:
         if len(top_nodes) > top_k:
             logger.info(f"Trimming expanded nodes from {len(top_nodes)} to {top_k}")
             top_nodes = top_nodes[:top_k]
+
+        from .jev_mem_policies import order_evidence_nodes
+        top_nodes = order_evidence_nodes(top_nodes, sort)
 
         final_context = QueryContext(
             query_text=question,

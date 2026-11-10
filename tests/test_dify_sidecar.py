@@ -184,3 +184,54 @@ def test_sidecar_registry_recovers_namespaces_from_postgres(monkeypatch, tmp_pat
     finally:
         pg_common.namespace_delete(_PG_DSN, ns)
         pg_common.reset_pool()
+
+
+def test_query_endpoint_passes_sort_order(monkeypatch, tmp_path):
+    """The /v1/memory/query endpoint forwards a validated, normalized sort."""
+    _prep_env(monkeypatch, mock="1")
+    app_module = _load_sidecar(monkeypatch, "sidecar_sort_app", _stage_service(tmp_path), tmp_path)
+    monkeypatch.setattr(app_module, "API_KEY", "")  # auth off
+
+    calls = []
+
+    class _FakeQueryEngine:
+        def query(self, question, top_k=15, sort="time"):
+            # Mirrors the real engine: order_evidence_nodes rejects unknown orders.
+            if sort not in ("time", "similarity"):
+                raise ValueError(f"sort must be one of time, similarity; got {sort!r}")
+            calls.append((question, top_k, sort))
+
+            class _Ctx:
+                metadata = {}
+
+            return _Ctx(), "evidence text"
+
+    class _FakeSystem:
+        query_engine = _FakeQueryEngine()
+        llm_controller = None
+
+    class _FakeRegistry:
+        def get(self, namespace):
+            return _FakeSystem()
+
+        def names(self):
+            return []
+
+    monkeypatch.setattr(app_module, "registry", _FakeRegistry())
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app_module.app)
+
+    r = client.post("/v1/memory/query", json={"question": "q"})
+    assert r.status_code == 200
+    assert r.json()["evidence"] == "evidence text"
+    assert calls == [("q", 15, "time")]
+
+    r = client.post("/v1/memory/query", json={"question": "q", "sort": "SIMILARITY"})
+    assert r.status_code == 200
+    assert calls[-1] == ("q", 15, "similarity")
+
+    r = client.post("/v1/memory/query", json={"question": "q", "sort": "bogus"})
+    assert r.status_code == 422
+    assert "sort" in r.json()["detail"]

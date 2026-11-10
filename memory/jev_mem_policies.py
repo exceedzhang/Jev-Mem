@@ -47,6 +47,24 @@ def timestamp_value(timestamp):
     return timestamp.replace(tzinfo=timestamp.tzinfo or timezone.utc).timestamp()
 
 
+SORT_ORDERS = ("time", "similarity")
+
+
+def order_evidence_nodes(nodes, order="time"):
+    """Order the final evidence nodes before they are formatted for output.
+
+    ``time`` (default) puts the newest memories first; nodes without a
+    timestamp sort last. ``similarity`` puts the highest-relevance memories
+    first (relevance comes from ``node.similarity_score`` when set, otherwise
+    the existing order is kept). Unknown values raise ``ValueError``.
+    """
+    if order not in SORT_ORDERS:
+        raise ValueError(f"sort must be one of {', '.join(SORT_ORDERS)}; got {order!r}")
+    if order == "similarity":
+        return sorted(nodes, key=lambda n: getattr(n, "similarity_score", 0.0), reverse=True)
+    return sorted(nodes, key=lambda n: (n.timestamp is None, -(timestamp_value(n.timestamp) or 0.0)))
+
+
 def node_state(node, *, include_temporal=False):
     state = {"id": node.node_id, "content": node.content_narrative,
             "timestamp": node.timestamp.isoformat() if node.timestamp else None,
