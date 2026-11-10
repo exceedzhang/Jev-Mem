@@ -121,12 +121,12 @@ class JMemClient:
         body["metadata"] = {"source": source} if source else {}
         return self._request("POST", "/v1/memory/ingest", body)
 
-    def query(self, question: str, top_k: int = 15) -> dict:
+    def query(self, question: str, top_k: int = 15, answer: bool = True) -> dict:
         return self._request("POST", "/v1/memory/query", {
             "question": question,
             "namespace": self.namespace,
             "top_k": top_k,
-            "answer": True,
+            "answer": answer,
         })
 
     def consolidate(self, memory_id: str) -> dict:

@@ -8,7 +8,7 @@
 
 | 工具 | 作用 |
 |---|---|
-| `query_memory` | 有界多跳图检索 + System-Two 答案合成,返回答案、证据与检索 trace(stopping_decision / jev_calls / nodes_visited 等) |
+| `query_memory` | 有界多跳图检索 + System-Two 答案合成,返回答案、证据与检索 trace(stopping_decision / jev_calls / nodes_visited 等);支持 `result_mode` 切换"直接回答 / 返回原始记忆" |
 | `ingest_memory` | 写入一条观察:Jev typing/准入 → 候选检索 → 关系判断 → 事务插入,返回 `memory_id` |
 | `consolidate_memory` | 对指定 `memory_id` 执行非破坏性巩固(冗余/矛盾/过时判断 + 子类型边) |
 
@@ -27,6 +27,19 @@
 - `consolidate_memory` 的 `json` 输出:巩固结果对象
 
 参数非法(非三者之一)时工具返回错误文本,不会调用 sidecar。
+
+## query_memory 返回模式(result_mode)
+
+`query_memory` 支持 `result_mode` 参数,按应用场景选择返回内容:
+
+| 取值 | 行为 | 适用场景 |
+|---|---|---|
+| `answer`(默认) | sidecar 用 System-Two 从检索到的证据合成直接答案(额外一次 LLM 调用) | 需要开箱即用的直接回答 |
+| `memory` | 跳过 sidecar 的答案合成,原样返回检索到的记忆记录(`evidence`) | 需要把原始记忆交给 workflow 里的 LLM 节点,结合当前上下文和自定义指令做二次加工 |
+
+- `memory` 模式下 `generated` 为 `false`,不产生 System-Two 调用,更快更省;
+- 两种模式都返回检索 trace,`json` 输出中另有 `result_mode` 字段标明本次所用模式;
+- 参数非法(非 `answer`/`memory`)时返回错误文本,不会调用 sidecar。
 
 ## 凭据
 

@@ -184,8 +184,8 @@ class _FakeMcpClient:
     def ingest(self, text, timestamp=None, source=None):
         return self._record("ingest", text, timestamp=timestamp, source=source)
 
-    def query(self, question, top_k=15):
-        return self._record("query", question, top_k=top_k)
+    def query(self, question, top_k=15, answer=True):
+        return self._record("query", question, top_k=top_k, answer=answer)
 
     def consolidate(self, memory_id):
         return self._record("consolidate", memory_id)
@@ -211,8 +211,22 @@ def test_mcp_tool_record_memory(fake_client):
 
 def test_mcp_tool_recall_memory_defaults_top_k(fake_client):
     out = json.loads(server.recall_memory("what happened?"))
-    assert fake_client.calls == [("query", ("what happened?",), {"top_k": 15})]
+    assert fake_client.calls == [("query", ("what happened?",),
+                                  {"top_k": 15, "answer": True})]
     assert out["name"] == "query"
+
+
+def test_mcp_tool_recall_memory_mode_memory_skips_synthesis(fake_client):
+    server.recall_memory("what happened?", result_mode="memory")
+    assert fake_client.calls == [("query", ("what happened?",),
+                                  {"top_k": 15, "answer": False})]
+
+
+def test_mcp_tool_recall_memory_rejects_unknown_mode(fake_client):
+    out = json.loads(server.recall_memory("x", result_mode="xml"))
+    assert out["error"] == "invalid parameter"
+    assert "result_mode" in out["detail"]
+    assert fake_client.calls == []
 
 
 def test_mcp_tool_consolidate_and_stats(fake_client):

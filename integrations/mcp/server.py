@@ -31,6 +31,7 @@ from mcp.server.mcpserver import MCPServer
 
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8701
+RESULT_MODES = ("answer", "memory")
 
 
 def load_server_config() -> tuple:
@@ -69,6 +70,17 @@ def _call(op) -> str:
         return _to_json({"error": "configuration error", "detail": str(exc)})
 
 
+def _answer_synthesis(result_mode) -> bool:
+    """Map the ``result_mode`` tool parameter to the sidecar's answer flag."""
+    mode = str(result_mode if result_mode is not None else "answer").strip().lower()
+    if mode not in RESULT_MODES:
+        raise ValueError(
+            "result_mode must be one of "
+            f"{', '.join(RESULT_MODES)}; got {result_mode!r}"
+        )
+    return mode == "answer"
+
+
 app = MCPServer("jev-mem")
 
 
@@ -78,9 +90,18 @@ def record_memory(text: str, timestamp: str | None = None,
     return _call(lambda c: c.ingest(text, timestamp=timestamp, source=source))
 
 
-@app.tool(description="Recall an answer from long-term memory.")
-def recall_memory(question: str, top_k: int = 15) -> str:
-    return _call(lambda c: c.query(question, top_k=top_k))
+@app.tool(description=(
+    "Recall from long-term memory. result_mode='answer' (default) returns a "
+    "synthesized answer; result_mode='memory' returns the raw memory records "
+    "so your own model can combine them with the current context."
+))
+def recall_memory(question: str, top_k: int = 15,
+                  result_mode: str = "answer") -> str:
+    try:
+        answer = _answer_synthesis(result_mode)
+    except ValueError as exc:
+        return _to_json({"error": "invalid parameter", "detail": str(exc)})
+    return _call(lambda c: c.query(question, top_k=top_k, answer=answer))
 
 
 @app.tool(description="Consolidate one stored memory (merge/relate it to related memories).")

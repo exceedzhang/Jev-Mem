@@ -3,6 +3,23 @@ from typing import Any
 from utils.jmem_client import JMemClient, JMemClientError
 
 RESPONSE_FORMATS = ("both", "json", "text")
+RESULT_MODES = ("answer", "memory")
+
+
+def normalize_result_mode(value: Any) -> str:
+    """Validate the ``result_mode`` tool parameter.
+
+    ``answer`` (default) lets the sidecar synthesize an answer from the
+    retrieved evidence, ``memory`` returns the raw memory records instead so
+    the calling model can post-process them with its own instructions.
+    """
+    mode = str(value if value is not None else "answer").strip().lower()
+    if mode not in RESULT_MODES:
+        raise JMemClientError(
+            "Parameter 'result_mode' must be one of "
+            f"{', '.join(RESULT_MODES)}; got {value!r}."
+        )
+    return mode
 
 
 def normalize_response_format(value: Any) -> str:
